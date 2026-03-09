@@ -1,11 +1,8 @@
 import os
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_openai import OpenAIEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
-from dotenv import load_dotenv
-
-load_dotenv()
 
 def ingest_pdfs():
     print("Loading PDFs...")
@@ -31,8 +28,8 @@ def ingest_pdfs():
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     splits = text_splitter.split_documents(docs)
 
-    print("Creating vector database. This may take a minute...")
-    embeddings = OpenAIEmbeddings()
+    print("Creating vector database with free Hugging Face embeddings. This may take a minute...")
+    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
     vectorstore = FAISS.from_documents(splits, embeddings)
     
     print("Saving vector database locally to 'faiss_index'...")
