@@ -3,7 +3,8 @@ import os
 import json
 import random
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_groq import ChatGroq
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain.prompts import PromptTemplate
 
@@ -27,22 +28,25 @@ if "user_choice" not in st.session_state:
 @st.cache_resource
 def load_vectorstore():
     """Loads the pre-computed FAISS vector index."""
-    embeddings = OpenAIEmbeddings()
-    # allow_dangerous_deserialization is required for local FAISS loading in newer LangChain versions
+    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
     vectorstore = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
     return vectorstore
 
 def generate_question(vectorstore):
     """Retrieves context from the PDFs and generates a multiple-choice question."""
-    # List of broad SY0-701 domains to ensure varied questions
     terms = ["malware", "firewall", "cryptography", "social engineering", "cloud security", 
              "IAM", "risk management", "incident response", "PKI", "vulnerability", "zero trust"]
     
-    # Retrieve a random chunk of context
     docs = vectorstore.similarity_search(random.choice(terms), k=1)
     context = docs[0].page_content
 
-    llm = ChatOpenAI(model_name="gpt-4", temperature=0.7)
+    # Using the free Groq API with Llama 3
+    llm = ChatGroq(
+        temperature=0.7, 
+        groq_api_key=os.getenv("GROQ_API_KEY"), 
+        model_name="llama3-8b-8192"
+    )
+    
     prompt = PromptTemplate(
         input_variables=["context"],
         template="""You are a CompTIA Security+ SY0-701 expert exam writer. 
@@ -63,7 +67,6 @@ JSON:"""
     
     response = llm.invoke(prompt.format(context=context))
     
-    # Clean up the response in case the LLM wrapped it in markdown code blocks
     content = response.content.strip()
     if content.startswith("```json"):
         content = content[7:-3]
@@ -95,7 +98,6 @@ st.write("Test your knowledge. Questions are dynamically generated from your stu
 
 vectorstore = load_vectorstore()
 
-# Generate a new question if we don't have one queued up
 if st.session_state.current_question is None:
     with st.spinner("Analyzing study materials & generating your next question..."):
         st.session_state.current_question = generate_question(vectorstore)
@@ -109,7 +111,6 @@ if q_data:
     st.markdown(f"### {q_data['question']}")
     options = q_data['options']
     
-    # State 1: User needs to answer the question
     if st.session_state.feedback is None:
         user_choice = st.radio("Select your answer:", options, index=None)
         
@@ -130,7 +131,6 @@ if q_data:
             else:
                 st.warning("Please select an answer before submitting.")
                 
-    # State 2: Answer submitted, show feedback and explanation
     else:
         st.radio("Your answer:", options, index=options.index(st.session_state.user_choice), disabled=True)
         
