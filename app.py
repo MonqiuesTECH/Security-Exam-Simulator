@@ -40,7 +40,7 @@ def generate_question(vectorstore):
     docs = vectorstore.similarity_search(random.choice(terms), k=1)
     context = docs[0].page_content
 
-llm = ChatGroq(
+    llm = ChatGroq(
         temperature=0.7, 
         groq_api_key=os.getenv("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"), 
         model_name="llama-3.1-8b-instant"
