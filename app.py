@@ -41,8 +41,8 @@ def generate_question(vectorstore):
     context = docs[0].page_content
 
 llm = ChatGroq(
-        temperature=0.7,
-        groq_api_key=os.getenv("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"),
+        temperature=0.7, 
+        groq_api_key=os.getenv("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"), 
         model_name="llama-3.1-8b-instant"
     )
     
