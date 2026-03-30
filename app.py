@@ -37,19 +37,20 @@ def generate_question(vectorstore):
     terms = ["malware", "firewall", "cryptography", "social engineering", "cloud security", 
              "IAM", "risk management", "incident response", "PKI", "vulnerability", "zero trust"]
     
+    # 1. Search for context
     docs = vectorstore.similarity_search(random.choice(terms), k=1)
     context = docs[0].page_content
 
-
-# ... inside your generate_question function ...
-llm = ChatGroq(
-    temperature=0.7,
-    # This pulls the value from the 'GROQ_API_KEY' secret you set in Streamlit
-    groq_api_key=os.getenv("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"), 
-    model_name="llama-3.1-8b-instant"
-)
+    # 2. Initialize LLM correctly 
+    # Use st.secrets to securely pull the key you set in the Streamlit dashboard
+    llm = ChatGroq(
+        temperature=0.7,
+        groq_api_key=st.secrets.get("GROQ_API_KEY"), 
+        model_name="llama-3.1-8b-instant"
+    )
     
-    prompt = PromptTemplate(
+    # 3. Define the prompt
+    prompt_template = PromptTemplate(
         input_variables=["context"],
         template="""You are a CompTIA Security+ SY0-701 expert exam writer. 
 Based strictly on the following context from the official study material, generate a challenging multiple-choice question.
@@ -66,6 +67,24 @@ Return ONLY valid JSON with the following keys:
 
 JSON:"""
     )
+    
+    # 4. Generate the response
+    try:
+        formatted_prompt = prompt_template.format(context=context)
+        response = llm.invoke(formatted_prompt)
+        content = response.content.strip()
+        
+        # Clean up JSON formatting if the LLM includes markdown backticks
+        if content.startswith("```json"):
+            content = content[7:-3]
+        elif content.startswith("```"):
+            content = content[3:-3]
+            
+        q_data = json.loads(content)
+        return q_data
+    except Exception as e:
+        st.error(f"Error during generation: {e}")
+        return None
     
     response = llm.invoke(prompt.format(context=context))
     
