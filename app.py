@@ -40,8 +40,6 @@ def generate_question(vectorstore):
     docs = vectorstore.similarity_search(random.choice(terms), k=1)
     context = docs[0].page_content
 
- import os
-from langchain_groq import ChatGroq
 
 # ... inside your generate_question function ...
 llm = ChatGroq(
