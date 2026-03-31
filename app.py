@@ -8,7 +8,7 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
-# 1. PAGE SETUP
+# 1. SETUP
 load_dotenv()
 st.set_page_config(page_title="Security+ SY0-701 Pro Sim", page_icon="🛡️", layout="wide")
 
@@ -17,33 +17,30 @@ st.set_page_config(page_title="Security+ SY0-701 Pro Sim", page_icon="🛡️", 
 def load_resources():
     api_key = st.secrets.get("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
     if not api_key:
-        st.error("🔑 GROQ_API_KEY missing in Streamlit Secrets!")
+        st.error("🔑 GROQ_API_KEY missing in Secrets!")
         st.stop()
     try:
         embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
         vectorstore = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
-        # Using Llama 3.3 for high-quality reasoning
         llm = ChatGroq(temperature=0, model_name="llama-3.3-70b-versatile", groq_api_key=api_key)
         return vectorstore, llm
     except Exception as e:
-        st.error(f"Initialization Error: {e}")
+        st.error(f"Load Error: {e}")
         return None, None
 
 # 3. AI LOGIC: STRICT EXTRACTION
 def get_clean_question(llm, raw_text):
     template = """
-    Extract the Security+ question EXACTLY as written in the text. 
-    If this is a disclaimer, front matter, or NOT a question, return: SKIP.
-    
+    Extract the Security+ question EXACTLY as written. 
+    If this is a disclaimer, copyright, or NOT a question, return: SKIP.
     RAW TEXT: {raw_text}
-
     FORMAT:
     QUESTION: [text]
     A: [text]
     B: [text]
     C: [text]
     D: [text]
-    CORRECT: [Letter Only]
+    CORRECT: [Letter]
     """
     prompt = PromptTemplate.from_template(template)
     chain = prompt | llm | StrOutputParser()
@@ -52,65 +49,57 @@ def get_clean_question(llm, raw_text):
 # 4. AI LOGIC: TUTOR FEEDBACK
 def get_tutor_feedback(llm, question, user_ans, correct_letter, is_right):
     template = """
-    You are an expert Security+ Tutor (SY0-701). 
+    You are an expert Security+ Tutor. 
     Question: {question}
-    Student Selected: {user_ans}
+    Student Choice: {user_ans}
     Correct Answer: {correct_letter}
     Result: {"Correct" if is_right else "Incorrect"}
-
-    Task: Provide a detailed explanation. 
-    1. Explain why the correct answer is the BEST choice according to CompTIA.
-    2. Explain why the student's choice was incorrect (if they were wrong).
-    3. Provide a 'Pro-Tip' for the SY0-701 exam.
+    
+    Explain exactly why the correct answer is right and why the other options (especially the student's choice if wrong) are technically incorrect for the SY0-701 exam.
     """
     prompt = PromptTemplate.from_template(template)
     chain = prompt | llm | StrOutputParser()
     return chain.invoke({"question": question, "user_ans": user_ans, "correct_letter": correct_letter, "is_right": is_right})
 
-# 5. MAIN APPLICATION
+# 5. MAIN APP
 def main():
     st.title("🛡️ Security+ SY0-701 Pro Simulator")
     vectorstore, llm = load_resources()
     if not vectorstore: return
 
-    # CRITICAL: Initialize ALL state variables at once
+    # INITIALIZE STATE
     if 'display_idx' not in st.session_state:
-        # Pull 150 to ensure we find 90 valid questions
         st.session_state.all_docs = vectorstore.similarity_search("Security+ practice question", k=150)
-        st.session_state.q_idx = 0         
-        st.session_state.display_idx = 1   
+        st.session_state.q_idx = 0
+        st.session_state.display_idx = 1
         st.session_state.correct_count = 0
         st.session_state.wrong_count = 0
         st.session_state.current_formatted = None
         st.session_state.feedback = None
         st.session_state.submitted = False
 
-    # SIDEBAR SCOREBOARD
+    # SIDEBAR
     with st.sidebar:
-        st.header("📊 Exam Progress")
+        st.header("📊 Scoreboard")
         st.write(f"Question: {st.session_state.display_idx} / 90")
         st.success(f"✅ Correct: {st.session_state.correct_count}")
         st.error(f"❌ Wrong: {st.session_state.wrong_count}")
-        
         if st.button("🔄 Restart Exam"):
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
+            for key in list(st.session_state.keys()): del st.session_state[key]
             st.rerun()
 
-    # MAIN EXAM LOGIC
+    # QUESTION FLOW
     if st.session_state.display_idx <= 90 and st.session_state.q_idx < len(st.session_state.all_docs):
-        # Step 1: Prepare the Question
         if st.session_state.current_formatted is None:
             raw_content = st.session_state.all_docs[st.session_state.q_idx].page_content
-            with st.spinner("AI Tutor is finding your next question..."):
-                time.sleep(1.2) 
+            with st.spinner("AI finding question..."):
+                time.sleep(1.2)
                 formatted = get_clean_question(llm, raw_content)
                 if "SKIP" in formatted or "QUESTION:" not in formatted:
                     st.session_state.q_idx += 1
                     st.rerun()
                 st.session_state.current_formatted = formatted
 
-        # Step 2: Display
         try:
             f = st.session_state.current_formatted
             q_text = f.split("QUESTION:")[1].split("A:")[0].strip()
@@ -126,32 +115,32 @@ def main():
             opts = {f"A: {a_opt}": "A", f"B: {b_opt}": "B", f"C: {c_opt}": "C", f"D: {d_opt}": "D"}
             user_choice = st.radio("Select choice:", list(opts.keys()), index=None, disabled=st.session_state.submitted)
 
-            # SUBMIT LOGIC
+            # BUTTON LOGIC
             if not st.session_state.submitted:
                 if st.button("Submit Answer") and user_choice:
                     user_letter = opts[user_choice]
                     is_right = (user_letter == correct_letter)
                     
-                    if is_right:
-                        st.session_state.correct_count += 1
-                        st.success(f"✅ Correct! The answer is {correct_letter}.")
-                    else:
-                        st.session_state.wrong_count += 1
-                        st.error(f"❌ Incorrect. The correct answer was {correct_letter}.")
+                    if is_right: st.session_state.correct_count += 1
+                    else: st.session_state.wrong_count += 1
                     
-                    # Fetch Explanation
-                    with st.spinner("AI Tutor is generating explanation..."):
+                    # FETCH FEEDBACK
+                    with st.spinner("AI Tutor explaining..."):
                         st.session_state.feedback = get_tutor_feedback(llm, q_text, user_choice, correct_letter, is_right)
                     
                     st.session_state.submitted = True
                     st.rerun()
             
-            # FEEDBACK & NEXT LOGIC
+            # THE REASON BOX: Only shows after submission
             if st.session_state.submitted:
-                if st.session_state.feedback:
-                    st.markdown("---")
-                    st.warning("🤖 **AI Tutor Explanation:**")
-                    st.write(st.session_state.feedback)
+                st.markdown("---")
+                if "✅ Correct" in st.session_state.feedback or user_letter == correct_letter:
+                    st.success(f"Correct! The answer was {correct_letter}")
+                else:
+                    st.error(f"Incorrect. The answer was {correct_letter}")
+                
+                st.warning("🤖 **AI Tutor Explanation:**")
+                st.write(st.session_state.feedback)
                 
                 if st.button("Next Question ➡️"):
                     st.session_state.q_idx += 1
@@ -160,10 +149,8 @@ def main():
                     st.session_state.feedback = None
                     st.session_state.submitted = False
                     st.rerun()
-                    
-        except Exception:
+        except:
             st.session_state.q_idx += 1
-            st.session_state.current_formatted = None
             st.rerun()
     else:
         st.balloons()
