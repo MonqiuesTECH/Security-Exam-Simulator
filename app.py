@@ -1,5 +1,6 @@
 import streamlit as st
 import os
+import random
 from dotenv import load_dotenv
 from langchain_groq import ChatGroq
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -7,137 +8,113 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
-# 1. INITIALIZATION & SECURITY
+# 1. SETUP & CONFIG
 load_dotenv()
-st.set_page_config(page_title="Security+ SY0-701 Mastery", page_icon="🛡️", layout="wide")
+st.set_page_config(page_title="Security+ SY0-701 AI Tutor", page_icon="🛡️", layout="wide")
 
-# Secure Key Retrieval
-def get_api_key():
-    # Priority 1: Streamlit Secrets (Production)
-    # Priority 2: .env file (Local Dev)
-    if "GROQ_API_KEY" in st.secrets:
-        return st.secrets["GROQ_API_KEY"]
-    return os.getenv("GROQ_API_KEY")
-
-# 2. ASSET LOADING (CACHED)
+# 2. RESOURCE LOADING
 @st.cache_resource
-def load_resources():
-    api_key = get_api_key()
-    if not api_key:
-        st.error("🔑 API Key Missing! Add it to Streamlit Secrets or your .env file.")
-        st.stop()
-
+def init_resources():
+    api_key = st.secrets["GROQ_API_KEY"] if "GROQ_API_KEY" in st.secrets else os.getenv("GROQ_API_KEY")
     try:
-        # Fixed: Using the updated langchain-huggingface package
         embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-        
-        # Load your FAISS index (Ensure this folder is in your GitHub repo)
-        vectorstore = FAISS.load_local(
-            "faiss_index", 
-            embeddings, 
-            allow_dangerous_deserialization=True
-        )
-        
-        llm = ChatGroq(
-            temperature=0.2, # Low temp for factual accuracy
-            model_name="llama-3.1-70b-versatile",
-            groq_api_key=api_key
-        )
+        vectorstore = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
+        llm = ChatGroq(temperature=0.1, model_name="llama-3.1-70b-versatile", groq_api_key=api_key)
         return vectorstore, llm
     except Exception as e:
-        st.error(f"Failed to load resources: {e}")
+        st.error(f"Initialization Error: {e}")
         return None, None
 
-# 3. AI TUTOR LOGIC (The "Why am I wrong?" Engine)
-def explain_mistake(llm, question, user_ans, correct_ans):
+# 3. AI CLEANING LOGIC (This fixes the 'Disclaimer' and 'Empty Options' issue)
+def format_question(llm, raw_text):
     template = """
-    You are a CompTIA Security+ Expert. A student just got a question wrong.
-    
-    QUESTION: {question}
-    THEIR WRONG ANSWER: {user_ans}
-    THE ACTUAL CORRECT ANSWER: {correct_ans}
-    
-    INSTRUCTIONS:
-    1. Explain WHY the correct answer is technically accurate per SY0-701 standards.
-    2. Gently explain the flaw in the student's logic for choosing {user_ans}.
-    3. Provide a 'Security+ Memory Hack' to help them never miss this concept again.
+    You are an expert at parsing CompTIA Security+ study materials. 
+    Take the following raw text and extract the exam question and the multiple-choice options.
+
+    RULES:
+    1. If the text is a legal disclaimer, table of contents, or NOT a question, return exactly: SKIP
+    2. If it is a question, format it clearly with A, B, C, and D labels.
+    3. Identify the correct answer based on the text.
+
+    RAW TEXT: {raw_text}
+
+    RESPONSE FORMAT:
+    QUESTION: [The question text]
+    A: [Option A]
+    B: [Option B]
+    C: [Option C]
+    D: [Option D]
+    CORRECT: [Just the Letter]
     """
     prompt = PromptTemplate.from_template(template)
     chain = prompt | llm | StrOutputParser()
-    return chain.invoke({"question": question, "user_ans": user_ans, "correct_ans": correct_ans})
+    return chain.invoke({"raw_text": raw_text})
 
-# 4. MAIN APP INTERFACE
+# 4. MAIN APP
 def main():
-    st.title("🛡️ Security+ SY0-701 AI Exam Simulator")
-    st.markdown("### *Guaranteed Mastery through AI Feedback*")
-
-    vectorstore, llm = load_resources()
+    st.title("🛡️ Security+ SY0-701 Mastery")
+    
+    vectorstore, llm = init_resources()
     if not vectorstore: return
 
-    # Session State Management
-    if 'q_index' not in st.session_state:
-        # Load 50 questions from the vectorstore to start
-        docs = vectorstore.similarity_search("CompTIA Security+ Exam Question", k=50)
+    # Session State
+    if 'q_idx' not in st.session_state:
+        # Pull 100 chunks to ensure we have enough after skipping disclaimers
+        docs = vectorstore.similarity_search("Security+ practice question", k=100)
         st.session_state.questions = docs
-        st.session_state.q_index = 0
+        st.session_state.q_idx = 0
         st.session_state.score = 0
-        st.session_state.feedback = None
-        st.session_state.answered = False
+        st.session_state.current_formatted = None
 
-    # Progress Sidebar
-    with st.sidebar:
-        st.header("Exam Analytics")
-        total = len(st.session_state.questions)
-        curr = st.session_state.q_index
-        st.metric("Mastery Score", f"{(st.session_state.score / (curr if curr > 0 else 1)) * 100:.1f}%")
-        st.progress(curr / total)
-        if st.button("Reset & Refresh Questions"):
-            st.session_state.clear()
+    # Process Current Question
+    if st.session_state.q_idx < len(st.session_state.questions):
+        if st.session_state.current_formatted is None:
+            raw_text = st.session_state.questions[st.session_state.q_idx].page_content
+            with st.spinner("AI is preparing your next question..."):
+                formatted = format_question(llm, raw_text)
+                
+            if "SKIP" in formatted:
+                st.session_state.q_idx += 1
+                st.rerun()
+            else:
+                st.session_state.current_formatted = formatted
+
+        # Parsing the AI output
+        try:
+            data = st.session_state.current_formatted
+            q_text = data.split("QUESTION:")[1].split("A:")[0].strip()
+            opt_a = data.split("A:")[1].split("B:")[0].strip()
+            opt_b = data.split("B:")[1].split("C:")[0].strip()
+            opt_c = data.split("C:")[1].split("D:")[0].strip()
+            opt_d = data.split("D:")[1].split("CORRECT:")[0].strip()
+            correct_ans = data.split("CORRECT:")[1].strip()
+        except:
+            st.session_state.q_idx += 1
+            st.session_state.current_formatted = None
             st.rerun()
 
-    # Question UI
-    if st.session_state.q_index < len(st.session_state.questions):
-        doc = st.session_state.questions[st.session_state.q_index]
-        content = doc.page_content
+        # UI DISPLAY
+        st.subheader(f"Question {st.session_state.q_idx + 1}")
+        st.info(q_text)
         
-        st.info(f"**Question {st.session_state.q_index + 1}:**\n\n{content}")
+        # Display options as full text
+        options_map = {f"A: {opt_a}": "A", f"B: {opt_b}": "B", f"C: {opt_c}": "C", f"D: {opt_d}": "D"}
+        choice = st.radio("Select the correct answer:", list(options_map.keys()), index=None)
 
-        # Note: You'll need to parse your 'content' to find the actual answer key
-        # For this logic, let's assume your text contains "Answer: X"
-        correct_answer = "C" # Placeholder: Update with your logic to extract answer from doc.metadata or content
-
-        options = ["A", "B", "C", "D"]
-        choice = st.radio("Choose your answer:", options, index=None, key=f"q_{st.session_state.q_index}")
-
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if st.button("Submit Answer", use_container_width=True) and choice:
-                st.session_state.answered = True
-                if choice == correct_answer:
-                    st.success("✅ Spot on! You understood that concept perfectly.")
-                    st.session_state.score += 1
-                else:
-                    st.error(f"❌ Not quite. The correct answer was {correct_answer}.")
-                    with st.spinner("Consulting the AI Tutor..."):
-                        st.session_state.feedback = explain_mistake(llm, content, choice, correct_answer)
-
-        with col2:
-            if st.session_state.answered:
-                if st.button("Next Question ➡️", use_container_width=True):
-                    st.session_state.q_index += 1
-                    st.session_state.answered = False
-                    st.session_state.feedback = None
-                    st.rerun()
-
-        # Display AI Tutor Feedback
-        if st.session_state.feedback:
-            st.warning("### 🤖 AI Tutor Explanation")
-            st.write(st.session_state.feedback)
-
+        if st.button("Submit Answer") and choice:
+            user_letter = options_map[choice]
+            if user_letter == correct_ans:
+                st.success(f"Correct! {user_letter} is the right answer.")
+                st.session_state.score += 1
+            else:
+                st.error(f"Incorrect. The correct answer was {correct_ans}.")
+            
+            if st.button("Next Question"):
+                st.session_state.q_idx += 1
+                st.session_state.current_formatted = None
+                st.rerun()
     else:
-        st.balloons()
-        st.success(f"Exam Complete! Final Mastery Score: {st.session_state.score}/{len(st.session_state.questions)}")
+        st.success(f"Exam Complete! Final Score: {st.session_state.score}")
 
 if __name__ == "__main__":
     main()
