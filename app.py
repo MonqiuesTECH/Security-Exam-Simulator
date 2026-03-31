@@ -22,6 +22,7 @@ def load_resources():
     try:
         embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
         vectorstore = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
+        # Using Llama 3.3 for high-quality reasoning
         llm = ChatGroq(temperature=0, model_name="llama-3.3-70b-versatile", groq_api_key=api_key)
         return vectorstore, llm
     except Exception as e:
@@ -32,7 +33,7 @@ def load_resources():
 def get_clean_question(llm, raw_text):
     template = """
     Extract the Security+ question EXACTLY as written in the text. 
-    If this is a disclaimer or NOT a question, return: SKIP.
+    If this is a disclaimer, front matter, or NOT a question, return: SKIP.
     
     RAW TEXT: {raw_text}
 
@@ -57,10 +58,10 @@ def get_tutor_feedback(llm, question, user_ans, correct_letter, is_right):
     Correct Answer: {correct_letter}
     Result: {"Correct" if is_right else "Incorrect"}
 
-    Task: Provide a high-quality explanation. 
-    1. Explain why the correct answer is the standard CompTIA choice.
-    2. Explain why the other options (including the student's if wrong) are technically incorrect.
-    3. Add a short 'Study Tip' for this concept.
+    Task: Provide a detailed explanation. 
+    1. Explain why the correct answer is the BEST choice according to CompTIA.
+    2. Explain why the student's choice was incorrect (if they were wrong).
+    3. Provide a 'Pro-Tip' for the SY0-701 exam.
     """
     prompt = PromptTemplate.from_template(template)
     chain = prompt | llm | StrOutputParser()
@@ -72,8 +73,9 @@ def main():
     vectorstore, llm = load_resources()
     if not vectorstore: return
 
-    # CRITICAL: Initialize ALL state variables at once to prevent AttributeError
+    # CRITICAL: Initialize ALL state variables at once
     if 'display_idx' not in st.session_state:
+        # Pull 150 to ensure we find 90 valid questions
         st.session_state.all_docs = vectorstore.similarity_search("Security+ practice question", k=150)
         st.session_state.q_idx = 0         
         st.session_state.display_idx = 1   
@@ -97,9 +99,10 @@ def main():
 
     # MAIN EXAM LOGIC
     if st.session_state.display_idx <= 90 and st.session_state.q_idx < len(st.session_state.all_docs):
+        # Step 1: Prepare the Question
         if st.session_state.current_formatted is None:
             raw_content = st.session_state.all_docs[st.session_state.q_idx].page_content
-            with st.spinner("AI Tutor is analyzing study material..."):
+            with st.spinner("AI Tutor is finding your next question..."):
                 time.sleep(1.2) 
                 formatted = get_clean_question(llm, raw_content)
                 if "SKIP" in formatted or "QUESTION:" not in formatted:
@@ -107,6 +110,7 @@ def main():
                     st.rerun()
                 st.session_state.current_formatted = formatted
 
+        # Step 2: Display
         try:
             f = st.session_state.current_formatted
             q_text = f.split("QUESTION:")[1].split("A:")[0].strip()
@@ -122,7 +126,7 @@ def main():
             opts = {f"A: {a_opt}": "A", f"B: {b_opt}": "B", f"C: {c_opt}": "C", f"D: {d_opt}": "D"}
             user_choice = st.radio("Select choice:", list(opts.keys()), index=None, disabled=st.session_state.submitted)
 
-            # SUBMIT ACTION
+            # SUBMIT LOGIC
             if not st.session_state.submitted:
                 if st.button("Submit Answer") and user_choice:
                     user_letter = opts[user_choice]
@@ -135,13 +139,14 @@ def main():
                         st.session_state.wrong_count += 1
                         st.error(f"❌ Incorrect. The correct answer was {correct_letter}.")
                     
+                    # Fetch Explanation
                     with st.spinner("AI Tutor is generating explanation..."):
                         st.session_state.feedback = get_tutor_feedback(llm, q_text, user_choice, correct_letter, is_right)
                     
                     st.session_state.submitted = True
                     st.rerun()
             
-            # FEEDBACK & NEXT ACTION
+            # FEEDBACK & NEXT LOGIC
             if st.session_state.submitted:
                 if st.session_state.feedback:
                     st.markdown("---")
