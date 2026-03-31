@@ -32,7 +32,7 @@ def load_resources():
 def get_clean_question(llm, raw_text):
     template = """
     Extract the Security+ question EXACTLY as written. 
-    If this is a disclaimer, copyright, or NOT a question, return: SKIP.
+    If this is a disclaimer or NOT a question, return: SKIP.
     RAW TEXT: {raw_text}
     FORMAT:
     QUESTION: [text]
@@ -55,7 +55,7 @@ def get_tutor_feedback(llm, question, user_ans, correct_letter, is_right):
     Correct Answer: {correct_letter}
     Result: {"Correct" if is_right else "Incorrect"}
     
-    Explain exactly why the correct answer is right and why the other options (especially the student's choice if wrong) are technically incorrect for the SY0-701 exam.
+    Explain why the correct answer is the BEST choice and why the other options (especially the student's choice if wrong) are technically incorrect for the SY0-701 exam.
     """
     prompt = PromptTemplate.from_template(template)
     chain = prompt | llm | StrOutputParser()
@@ -67,18 +67,18 @@ def main():
     vectorstore, llm = load_resources()
     if not vectorstore: return
 
-    # INITIALIZE STATE
+    # INITIALIZE ALL STATE VARIABLES AT ONCE
     if 'display_idx' not in st.session_state:
         st.session_state.all_docs = vectorstore.similarity_search("Security+ practice question", k=150)
-        st.session_state.q_idx = 0
-        st.session_state.display_idx = 1
+        st.session_state.db_idx = 0         # The actual index in the database
+        st.session_state.display_idx = 1    # What you see on screen (1-90)
         st.session_state.correct_count = 0
         st.session_state.wrong_count = 0
         st.session_state.current_formatted = None
         st.session_state.feedback = None
         st.session_state.submitted = False
 
-    # SIDEBAR
+    # SIDEBAR SCOREBOARD
     with st.sidebar:
         st.header("📊 Scoreboard")
         st.write(f"Question: {st.session_state.display_idx} / 90")
@@ -88,73 +88,83 @@ def main():
             for key in list(st.session_state.keys()): del st.session_state[key]
             st.rerun()
 
-    # QUESTION FLOW
-    if st.session_state.display_idx <= 90 and st.session_state.q_idx < len(st.session_state.all_docs):
-        if st.session_state.current_formatted is None:
-            raw_content = st.session_state.all_docs[st.session_state.q_idx].page_content
-            with st.spinner("AI finding question..."):
-                time.sleep(1.2)
-                formatted = get_clean_question(llm, raw_content)
-                if "SKIP" in formatted or "QUESTION:" not in formatted:
-                    st.session_state.q_idx += 1
-                    st.rerun()
-                st.session_state.current_formatted = formatted
-
-        try:
-            f = st.session_state.current_formatted
-            q_text = f.split("QUESTION:")[1].split("A:")[0].strip()
-            a_opt = f.split("A:")[1].split("B:")[0].strip()
-            b_opt = f.split("B:")[1].split("C:")[0].strip()
-            c_opt = f.split("C:")[1].split("D:")[0].strip()
-            d_opt = f.split("D:")[1].split("CORRECT:")[0].strip()
-            correct_letter = f.split("CORRECT:")[1].strip()
-
-            st.subheader(f"Question {st.session_state.display_idx}")
-            st.info(q_text)
-            
-            opts = {f"A: {a_opt}": "A", f"B: {b_opt}": "B", f"C: {c_opt}": "C", f"D: {d_opt}": "D"}
-            user_choice = st.radio("Select choice:", list(opts.keys()), index=None, disabled=st.session_state.submitted)
-
-            # BUTTON LOGIC
-            if not st.session_state.submitted:
-                if st.button("Submit Answer") and user_choice:
-                    user_letter = opts[user_choice]
-                    is_right = (user_letter == correct_letter)
-                    
-                    if is_right: st.session_state.correct_count += 1
-                    else: st.session_state.wrong_count += 1
-                    
-                    # FETCH FEEDBACK
-                    with st.spinner("AI Tutor explaining..."):
-                        st.session_state.feedback = get_tutor_feedback(llm, q_text, user_choice, correct_letter, is_right)
-                    
-                    st.session_state.submitted = True
-                    st.rerun()
-            
-            # THE REASON BOX: Only shows after submission
-            if st.session_state.submitted:
-                st.markdown("---")
-                if "✅ Correct" in st.session_state.feedback or user_letter == correct_letter:
-                    st.success(f"Correct! The answer was {correct_letter}")
-                else:
-                    st.error(f"Incorrect. The answer was {correct_letter}")
-                
-                st.warning("🤖 **AI Tutor Explanation:**")
-                st.write(st.session_state.feedback)
-                
-                if st.button("Next Question ➡️"):
-                    st.session_state.q_idx += 1
-                    st.session_state.display_idx += 1
-                    st.session_state.current_formatted = None
-                    st.session_state.feedback = None
-                    st.session_state.submitted = False
-                    st.rerun()
-        except:
-            st.session_state.q_idx += 1
-            st.rerun()
-    else:
+    # STOP AT 90 QUESTIONS
+    if st.session_state.display_idx > 90 or st.session_state.db_idx >= len(st.session_state.all_docs):
         st.balloons()
         st.success(f"Exam Finished! Final Score: {st.session_state.correct_count} / 90")
+        return
+
+    # PREPARE QUESTION (Only if we don't have one)
+    if st.session_state.current_formatted is None:
+        raw_content = st.session_state.all_docs[st.session_state.db_idx].page_content
+        with st.spinner("AI finding valid question..."):
+            time.sleep(1.2)
+            formatted = get_clean_question(llm, raw_content)
+            if "SKIP" in formatted or "QUESTION:" not in formatted:
+                st.session_state.db_idx += 1
+                st.rerun()
+            st.session_state.current_formatted = formatted
+
+    # PARSE DATA
+    try:
+        f = st.session_state.current_formatted
+        q_text = f.split("QUESTION:")[1].split("A:")[0].strip()
+        a_opt = f.split("A:")[1].split("B:")[0].strip()
+        b_opt = f.split("B:")[1].split("C:")[0].strip()
+        c_opt = f.split("C:")[1].split("D:")[0].strip()
+        d_opt = f.split("D:")[1].split("CORRECT:")[0].strip()
+        correct_letter = f.split("CORRECT:")[1].strip()
+    except Exception:
+        st.session_state.db_idx += 1
+        st.session_state.current_formatted = None
+        st.rerun()
+
+    # DISPLAY UI
+    st.subheader(f"Question {st.session_state.display_idx}")
+    st.info(q_text)
+    
+    opts = {f"A: {a_opt}": "A", f"B: {b_opt}": "B", f"C: {c_opt}": "C", f"D: {d_opt}": "D"}
+    
+    # Selection logic
+    user_choice = st.radio("Select choice:", list(opts.keys()), index=None, disabled=st.session_state.submitted)
+
+    # SUBMIT PHASE
+    if not st.session_state.submitted:
+        if st.button("Submit Answer") and user_choice:
+            user_letter = opts[user_choice]
+            is_right = (user_letter == correct_letter)
+            
+            # Update score immediately
+            if is_right: st.session_state.correct_count += 1
+            else: st.session_state.wrong_count += 1
+            
+            # Fetch feedback
+            with st.spinner("AI Tutor generating explanation..."):
+                st.session_state.feedback = get_tutor_feedback(llm, q_text, user_choice, correct_letter, is_right)
+            
+            st.session_state.submitted = True
+            st.rerun()
+    
+    # REVIEW PHASE (Only shows after Submit)
+    if st.session_state.submitted:
+        st.markdown("---")
+        # Visual cue for result
+        if opts[user_choice] == correct_letter:
+            st.success(f"Correct! The answer was {correct_letter}")
+        else:
+            st.error(f"Incorrect. The answer was {correct_letter}")
+        
+        st.warning("🤖 **AI Tutor Explanation:**")
+        st.write(st.session_state.feedback)
+        
+        # Next button is the ONLY way to advance
+        if st.button("Next Question ➡️"):
+            st.session_state.db_idx += 1
+            st.session_state.display_idx += 1
+            st.session_state.current_formatted = None
+            st.session_state.feedback = None
+            st.session_state.submitted = False
+            st.rerun()
 
 if __name__ == "__main__":
     main()
