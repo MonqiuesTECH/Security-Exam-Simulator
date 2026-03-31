@@ -23,58 +23,58 @@ def load_exam_resources():
     try:
         embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
         vectorstore = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
-        llm = ChatGroq(temperature=0, model_name="llama-3.3-70b-versatile", groq_api_key=api_key)
+        
+        # Temperature 0 is CRITICAL to prevent the AI from 'fixing' your questions
+        llm = ChatGroq(
+            temperature=0, 
+            model_name="llama-3.3-70b-versatile", 
+            groq_api_key=api_key
+        )
         return vectorstore, llm
     except Exception as e:
         st.error(f"Critical Load Error: {e}")
         return None, None
 
-# 3. AI LOGIC: STRICT QUESTION EXTRACTION
+# 3. AI LOGIC: STRICT EXTRACTION
 def get_clean_question(llm, raw_text):
     text_sample = raw_text[:1200]
     template = """
-    You are a strict data extraction tool for CompTIA Security+ questions.
-    
-    TASK:
-    Extract the question and the four multiple-choice options EXACTLY as written in the text.
+    You are a literal data extraction tool. Your job is to extract a Security+ question.
     
     RULES:
-    1. DO NOT add your own commentary or corrections.
-    2. DO NOT explain why an answer is right or wrong here.
-    3. If the text is a disclaimer, copyright, or lacks a clear question with 4 options, return: SKIP.
-    4. Ensure the 'CORRECT' field is only a single letter (A, B, C, or D).
-
+    1. Extract the question and options EXACTLY as they appear in the text.
+    2. DO NOT correct the text. DO NOT add your own opinions or comments like "B is not correct".
+    3. If the text is a disclaimer or not a question, return: SKIP.
+    
     TEXT: {raw_text}
 
     RESPONSE FORMAT:
-    QUESTION: [Exact Question Text]
-    A: [Exact Option A]
-    B: [Exact Option B]
-    C: [Exact Option C]
-    D: [Exact Option D]
-    CORRECT: [Letter]
+    QUESTION: [text]
+    A: [text]
+    B: [text]
+    C: [text]
+    D: [text]
+    CORRECT: [Just the Letter]
     """
     prompt = PromptTemplate.from_template(template)
     chain = prompt | llm | StrOutputParser()
     return chain.invoke({"raw_text": text_sample})
 
 # 4. AI LOGIC: TUTOR FEEDBACK
-def get_tutor_feedback(llm, question, user_choice_text, correct_letter, is_correct):
+def get_tutor_explanation(llm, question, user_choice, correct_letter, is_correct):
     template = """
-    You are an expert Security+ (SY0-701) Tutor.
+    You are a CompTIA Security+ Tutor.
     Question: {question}
-    Student Answered: {user_choice_text}
-    Result: {"Correct" if is_correct else "Incorrect"} (Correct Answer is {correct_letter})
+    Student Answered: {user_choice}
+    Result: {"Correct" if is_correct else "Incorrect"} (Correct Answer: {correct_letter})
     
-    Explain why the correct answer is the standard CompTIA choice. 
-    If the student was wrong, explain the error in their logic.
-    Provide a 'Security+ Memory Hack'.
+    Explain the technical concept clearly. If the student was wrong, explain why the correct option is the best answer for the SY0-701 exam and why the student's choice was technically incorrect.
     """
     prompt = PromptTemplate.from_template(template)
     chain = prompt | llm | StrOutputParser()
     return chain.invoke({
         "question": question, 
-        "user_choice_text": user_choice_text, 
+        "user_choice": user_choice, 
         "correct_letter": correct_letter,
         "is_correct": is_correct
     })
@@ -82,9 +82,11 @@ def get_tutor_feedback(llm, question, user_choice_text, correct_letter, is_corre
 # 5. MAIN APP
 def main():
     st.title("🛡️ Security+ SY0-701 AI Exam Simulator")
+    
     vectorstore, llm = load_exam_resources()
     if not vectorstore: return
 
+    # Comprehensive Session State Initialization
     if 'all_docs' not in st.session_state:
         st.session_state.all_docs = vectorstore.similarity_search("practice exam question", k=60)
         st.session_state.q_idx = 0
@@ -93,20 +95,22 @@ def main():
         st.session_state.feedback = None
 
     if st.session_state.q_idx < len(st.session_state.all_docs):
+        # AI Extraction Layer
         if st.session_state.current_formatted is None:
             raw_content = st.session_state.all_docs[st.session_state.q_idx].page_content
-            with st.spinner("AI Tutor is parsing study material..."):
+            with st.spinner("AI Tutor is analyzing study material..."):
                 try:
-                    time.sleep(1.5) 
+                    time.sleep(1.5) # Free tier rate limit protection
                     formatted = get_clean_question(llm, raw_content)
                     if "SKIP" in formatted or "QUESTION:" not in formatted:
                         st.session_state.q_idx += 1
                         st.rerun()
                     st.session_state.current_formatted = formatted
-                except Exception:
+                except:
                     st.session_state.q_idx += 1
                     st.rerun()
 
+        # UI Logic
         try:
             f = st.session_state.current_formatted
             q_text = f.split("QUESTION:")[1].split("A:")[0].strip()
@@ -119,21 +123,22 @@ def main():
             st.subheader(f"Question {st.session_state.q_idx + 1}")
             st.info(q_text)
             
-            opts = {f"A: {a_opt}": "A", f"B: {b_opt}": "B", f"C: {c_opt}": "C", f"D: {d_opt}": "D"}
-            user_choice = st.radio("Select choice:", list(opts.keys()), index=None)
+            options = {f"A: {a_opt}": "A", f"B: {b_opt}": "B", f"C: {c_opt}": "C", f"D: {d_opt}": "D"}
+            user_choice = st.radio("Choose the correct option:", list(options.keys()), index=None)
 
             if st.button("Submit Answer") and user_choice:
-                user_letter = opts[user_choice]
+                user_letter = options[user_choice]
                 is_right = (user_letter == correct_letter)
                 if is_right:
-                    st.success(f"✅ Correct! ({correct_letter})")
+                    st.success(f"✅ Correct! The answer is {correct_letter}.")
                     st.session_state.score += 1
                 else:
                     st.error(f"❌ Incorrect. The answer was {correct_letter}.")
                 
                 with st.spinner("AI Tutor is generating explanation..."):
-                    st.session_state.feedback = get_tutor_feedback(llm, q_text, user_choice, correct_letter, is_right)
+                    st.session_state.feedback = get_tutor_explanation(llm, q_text, user_choice, correct_letter, is_right)
 
+            # Display AI Feedback
             if st.session_state.feedback:
                 st.warning("🤖 **AI Tutor Explanation:**")
                 st.write(st.session_state.feedback)
@@ -147,6 +152,7 @@ def main():
             st.session_state.current_formatted = None
             st.rerun()
     else:
+        st.balloons()
         st.success(f"Final Score: {st.session_state.score}/{len(st.session_state.all_docs)}")
 
 if __name__ == "__main__":
