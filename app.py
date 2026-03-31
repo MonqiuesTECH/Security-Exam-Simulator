@@ -32,7 +32,7 @@ def load_resources():
 def get_clean_question(llm, raw_text):
     template = """
     Extract the Security+ question EXACTLY as written in the text. 
-    If this is a disclaimer, copyright notice, or NOT a question, return: SKIP.
+    If this is a disclaimer or NOT a question, return: SKIP.
     
     RAW TEXT: {raw_text}
 
@@ -51,13 +51,16 @@ def get_clean_question(llm, raw_text):
 # 4. AI LOGIC: TUTOR FEEDBACK
 def get_tutor_feedback(llm, question, user_ans, correct_letter, is_right):
     template = """
-    You are a Security+ Tutor. 
+    You are an expert Security+ Tutor (SY0-701). 
     Question: {question}
-    Student Choice: {user_ans}
+    Student Selected: {user_ans}
     Correct Answer: {correct_letter}
     Result: {"Correct" if is_right else "Incorrect"}
 
-    Explain why the correct answer is the right choice and why the other options (including the student's if wrong) are incorrect for the SY0-701 exam.
+    Task: Provide a high-quality explanation. 
+    1. Explain why the correct answer is the standard CompTIA choice.
+    2. Explain why the other options (including the student's if wrong) are technically incorrect.
+    3. Add a short 'Study Tip' for this concept.
     """
     prompt = PromptTemplate.from_template(template)
     chain = prompt | llm | StrOutputParser()
@@ -71,10 +74,9 @@ def main():
 
     # CRITICAL: Initialize ALL state variables at once to prevent AttributeError
     if 'display_idx' not in st.session_state:
-        # Pull 150 chunks to ensure we can find 90 valid questions after skipping junk
         st.session_state.all_docs = vectorstore.similarity_search("Security+ practice question", k=150)
-        st.session_state.q_idx = 0         # Database index
-        st.session_state.display_idx = 1   # User-facing question number
+        st.session_state.q_idx = 0         
+        st.session_state.display_idx = 1   
         st.session_state.correct_count = 0
         st.session_state.wrong_count = 0
         st.session_state.current_formatted = None
@@ -95,20 +97,16 @@ def main():
 
     # MAIN EXAM LOGIC
     if st.session_state.display_idx <= 90 and st.session_state.q_idx < len(st.session_state.all_docs):
-        # 1. Fetch and Parse Question
         if st.session_state.current_formatted is None:
             raw_content = st.session_state.all_docs[st.session_state.q_idx].page_content
             with st.spinner("AI Tutor is analyzing study material..."):
-                time.sleep(1.2) # Rate limit protection
+                time.sleep(1.2) 
                 formatted = get_clean_question(llm, raw_content)
-                
-                # If AI says it's a disclaimer, move to next DB chunk but keep display_idx same
                 if "SKIP" in formatted or "QUESTION:" not in formatted:
                     st.session_state.q_idx += 1
                     st.rerun()
                 st.session_state.current_formatted = formatted
 
-        # 2. Display Question
         try:
             f = st.session_state.current_formatted
             q_text = f.split("QUESTION:")[1].split("A:")[0].strip()
@@ -122,11 +120,9 @@ def main():
             st.info(q_text)
             
             opts = {f"A: {a_opt}": "A", f"B: {b_opt}": "B", f"C: {c_opt}": "C", f"D: {d_opt}": "D"}
-            
-            # Radio is locked after submission
-            user_choice = st.radio("Select the correct option:", list(opts.keys()), index=None, disabled=st.session_state.submitted)
+            user_choice = st.radio("Select choice:", list(opts.keys()), index=None, disabled=st.session_state.submitted)
 
-            # 3. Submit Answer
+            # SUBMIT ACTION
             if not st.session_state.submitted:
                 if st.button("Submit Answer") and user_choice:
                     user_letter = opts[user_choice]
@@ -139,14 +135,13 @@ def main():
                         st.session_state.wrong_count += 1
                         st.error(f"❌ Incorrect. The correct answer was {correct_letter}.")
                     
-                    # Generate AI Explanation
                     with st.spinner("AI Tutor is generating explanation..."):
                         st.session_state.feedback = get_tutor_feedback(llm, q_text, user_choice, correct_letter, is_right)
                     
                     st.session_state.submitted = True
                     st.rerun()
             
-            # 4. Feedback & Next Step
+            # FEEDBACK & NEXT ACTION
             if st.session_state.submitted:
                 if st.session_state.feedback:
                     st.markdown("---")
@@ -162,13 +157,12 @@ def main():
                     st.rerun()
                     
         except Exception:
-            # Skip if the text block is messy or unparsable
             st.session_state.q_idx += 1
             st.session_state.current_formatted = None
             st.rerun()
     else:
         st.balloons()
-        st.success(f"Exam Complete! Final Score: {st.session_state.correct_count} / 90")
+        st.success(f"Exam Finished! Final Score: {st.session_state.correct_count} / 90")
 
 if __name__ == "__main__":
     main()
