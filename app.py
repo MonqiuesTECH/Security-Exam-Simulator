@@ -8,124 +8,141 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
-# 1. SETUP
+# 1. SETUP & PAGE CONFIG
 load_dotenv()
-st.set_page_config(page_title="Security+ SY0-701 Free Tier", page_icon="🛡️", layout="wide")
+st.set_page_config(page_title="Security+ SY0-701 AI Mastery", page_icon="🛡️", layout="wide")
 
-# 2. RESOURCE LOADING
+# 2. SECURE RESOURCE INITIALIZATION
 @st.cache_resource
-def init_resources():
+def load_exam_resources():
+    # Priority: Streamlit Secrets, then local .env
     api_key = st.secrets.get("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
+    
     if not api_key:
-        st.error("🔑 API Key Missing in Secrets!")
+        st.error("🔑 GROQ_API_KEY is missing! Please add it to your Streamlit Secrets.")
         st.stop()
 
     try:
+        # Load Embeddings (sentence-transformers)
         embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-        vectorstore = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
         
-        # Using the Free Tier's most stable model
+        # Load FAISS Index (ensure 'faiss_index' folder is in your repo)
+        vectorstore = FAISS.load_local(
+            "faiss_index", 
+            embeddings, 
+            allow_dangerous_deserialization=True
+        )
+        
+        # UPDATED: Using the current 2026 replacement for decommissioned models
         llm = ChatGroq(
             temperature=0.1, 
-            model_name="llama3-70b-8192", 
+            model_name="llama-3.3-70b-versatile", 
             groq_api_key=api_key
         )
         return vectorstore, llm
     except Exception as e:
-        st.error(f"Initialization Error: {e}")
+        st.error(f"Critical Load Error: {e}")
         return None, None
 
-# 3. AI CLEANING (Reduced for Free Tier Limits)
-def format_question(llm, raw_text):
-    # Only send the first 1500 characters to stay under Free Tier limits
-    truncated_text = raw_text[:1500]
+# 3. AI EXTRACTION & CLEANING (Optimized for Free Tier)
+def get_clean_question(llm, raw_text):
+    # Free Tier Safety: Truncate to avoid 'Request too large' errors
+    text_sample = raw_text[:1200]
     
     template = """
-    Extract the exam question from this text. 
-    If it is a disclaimer/legal text, return: SKIP.
+    You are a CompTIA Security+ SY0-701 Instructor. 
+    Analyze the text below. 
     
-    TEXT: {raw_text}
+    RULES:
+    1. If the text is a legal disclaimer, table of contents, or copyright notice, return: SKIP
+    2. If it is a question, extract the question and full text for options A, B, C, and D.
+    3. Identify the correct answer letter.
 
-    FORMAT:
+    RAW TEXT: {raw_text}
+
+    RESPONSE FORMAT:
     QUESTION: [text]
     A: [text]
     B: [text]
     C: [text]
     D: [text]
-    CORRECT: [Letter]
+    CORRECT: [Letter Only]
     """
     prompt = PromptTemplate.from_template(template)
     chain = prompt | llm | StrOutputParser()
-    return chain.invoke({"raw_text": truncated_text})
+    return chain.invoke({"raw_text": text_sample})
 
-# 4. MAIN APP
+# 4. MAIN APP INTERFACE
 def main():
     st.title("🛡️ Security+ SY0-701 AI Exam Simulator")
+    st.markdown("---")
 
-    vectorstore, llm = init_resources()
+    vectorstore, llm = load_exam_resources()
     if not vectorstore: return
 
+    # Session State Setup
     if 'q_idx' not in st.session_state:
-        # Search for questions - limit to 50 for Free Tier performance
-        st.session_state.questions = vectorstore.similarity_search("practice question", k=50)
+        # Pull 60 random samples from your study guide
+        st.session_state.all_docs = vectorstore.similarity_search("Security+ practice exam question", k=60)
         st.session_state.q_idx = 0
         st.session_state.score = 0
         st.session_state.current_formatted = None
 
-    if st.session_state.q_idx < len(st.session_state.questions):
+    if st.session_state.q_idx < len(st.session_state.all_docs):
+        # AI Formatting Layer
         if st.session_state.current_formatted is None:
-            raw_content = st.session_state.questions[st.session_state.q_idx].page_content
+            raw_content = st.session_state.all_docs[st.session_state.q_idx].page_content
             
             with st.spinner("AI Tutor is analyzing (Free Tier Mode)..."):
                 try:
-                    # Small sleep to prevent 'Rate Limit' errors
-                    time.sleep(1) 
-                    formatted = format_question(llm, raw_content)
+                    # Small delay to respect Free Tier Rate Limits
+                    time.sleep(1.5)
+                    formatted = get_clean_question(llm, raw_content)
                     
                     if "SKIP" in formatted:
                         st.session_state.q_idx += 1
                         st.rerun()
                     st.session_state.current_formatted = formatted
                 except Exception as e:
-                    if "429" in str(e):
-                        st.error("Groq Free Tier Rate Limit hit. Please wait 60 seconds.")
-                    else:
-                        st.error(f"Error: {e}")
+                    st.error(f"AI Service Error: {e}")
+                    st.info("Check if your Groq Free Tier daily limit has been reached.")
                     st.stop()
 
-        # Display Logic
+        # UI Logic
         try:
             f = st.session_state.current_formatted
             q_text = f.split("QUESTION:")[1].split("A:")[0].strip()
-            a_t = f.split("A:")[1].split("B:")[0].strip()
-            b_t = f.split("B:")[1].split("C:")[0].strip()
-            c_t = f.split("C:")[1].split("D:")[0].strip()
-            d_t = f.split("D:")[1].split("CORRECT:")[0].strip()
+            a_opt = f.split("A:")[1].split("B:")[0].strip()
+            b_opt = f.split("B:")[1].split("C:")[0].strip()
+            c_opt = f.split("C:")[1].split("D:")[0].strip()
+            d_opt = f.split("D:")[1].split("CORRECT:")[0].strip()
             correct_letter = f.split("CORRECT:")[1].strip()
 
             st.subheader(f"Question {st.session_state.q_idx + 1}")
             st.info(q_text)
             
-            opts = {f"A: {a_t}": "A", f"B: {b_t}": "B", f"C: {c_t}": "C", f"D: {d_t}": "D"}
-            choice = st.radio("Choose answer:", list(opts.keys()), index=None)
+            options = {f"A: {a_opt}": "A", f"B: {b_opt}": "B", f"C: {c_opt}": "C", f"D: {d_opt}": "D"}
+            user_choice = st.radio("Choose the correct option:", list(options.keys()), index=None)
 
-            if st.button("Submit"):
-                if opts[choice] == correct_letter:
-                    st.success(f"Correct! The answer is {correct_letter}.")
+            if st.button("Submit Answer") and user_choice:
+                user_letter = options[user_choice]
+                if user_letter == correct_letter:
+                    st.success(f"✅ Correct! The answer is {correct_letter}.")
                     st.session_state.score += 1
                 else:
-                    st.error(f"Wrong. The correct answer was {correct_letter}.")
-                
+                    st.error(f"❌ Incorrect. The answer was {correct_letter}.")
+
                 if st.button("Next Question"):
                     st.session_state.q_idx += 1
                     st.session_state.current_formatted = None
                     st.rerun()
         except:
+            # Skip if the AI returns a format the app can't parse
             st.session_state.q_idx += 1
             st.session_state.current_formatted = None
             st.rerun()
     else:
-        st.success(f"Final Score: {st.session_state.score}")
+        st.success(f"Session Finished! Final Score: {st.session_state.score}/{len(st.session_state.all_docs)}")
 
 if __name__ == "__main__":
     main()
