@@ -6,3 +6,5 @@ langchain-community
 sentence-transformers
 faiss-cpu
 python-dotenv
+torch
+torchvision
