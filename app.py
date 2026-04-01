@@ -49,14 +49,17 @@ def get_clean_question(llm, raw_text):
     chain = prompt | llm | StrOutputParser()
     return chain.invoke({"raw_text": raw_text[:1200]})
 
-# 4. AI LOGIC: EXPLANATION GENERATOR
+# 4. AI LOGIC: EXPLANATION GENERATOR (Fixed KeyError)
 def get_tutor_feedback(llm, question, user_ans, correct_letter, is_right):
+    # Fix: Evaluate the string BEFORE passing it to LangChain to prevent dictionary KeyErrors
+    result_text = "Correct" if is_right else "Incorrect"
+    
     template = """
     You are an expert CompTIA Security+ (SY0-701) Tutor. 
     Question: {question}
     Student Choice: {user_ans}
     Correct Answer: {correct_letter}
-    Result: {"Correct" if is_right else "Incorrect"}
+    Result: {result}
     
     Task: Write a smooth, readable, and highly educational explanation.
     1. Clearly explain why the correct answer is the BEST choice.
@@ -65,11 +68,12 @@ def get_tutor_feedback(llm, question, user_ans, correct_letter, is_right):
     """
     prompt = PromptTemplate.from_template(template)
     chain = prompt | llm | StrOutputParser()
+    
     return chain.invoke({
         "question": question, 
         "user_ans": user_ans, 
         "correct_letter": correct_letter, 
-        "is_right": is_right
+        "result": result_text  # Passed safely here
     })
 
 # 5. MAIN APPLICATION
@@ -187,7 +191,7 @@ def main():
 
     # PHASE 2: REVIEWING
     elif st.session_state.phase == "reviewing":
-        # Show what the user selected, but disabled
+        # Show what the user selected, but disabled so it can't be changed
         st.radio("Your answer:", cq["options"], index=cq["options"].index(st.session_state.user_choice), disabled=True)
         
         st.markdown("---")
@@ -208,7 +212,7 @@ def main():
             st.session_state.db_idx += 1        # Move database index forward
             st.session_state.display_idx += 1   # Move visual question number forward
             st.session_state.current_q = None   # Clear current question
-            st.session_state.phase = "answering"# Reset phase
+            st.session_state.phase = "answering"# Reset phase back to question mode
             st.rerun()
 
 if __name__ == "__main__":
