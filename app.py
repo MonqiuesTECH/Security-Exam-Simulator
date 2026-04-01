@@ -22,7 +22,6 @@ def load_resources():
     try:
         embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
         vectorstore = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
-        # Using Llama 3.3 for high-quality, readable explanations
         llm = ChatGroq(temperature=0, model_name="llama-3.3-70b-versatile", groq_api_key=api_key)
         return vectorstore, llm
     except Exception as e:
@@ -32,7 +31,7 @@ def load_resources():
 # 3. AI LOGIC: STRICT QUESTION PARSER
 def get_clean_question(llm, raw_text):
     template = """
-    Extract the Security+ question EXACTLY as written. 
+    Extract ONE CompTIA Security+ question EXACTLY as written. 
     If this text is a disclaimer, table of contents, or NOT a question, return: SKIP.
     
     RAW TEXT: {raw_text}
@@ -43,15 +42,16 @@ def get_clean_question(llm, raw_text):
     B: [text]
     C: [text]
     D: [text]
-    CORRECT: [Letter Only]
+    CORRECT: [A, B, C, or D]
+    
+    CRITICAL INSTRUCTION: Stop generating text immediately after providing the single CORRECT letter. Do not extract the next question.
     """
     prompt = PromptTemplate.from_template(template)
     chain = prompt | llm | StrOutputParser()
     return chain.invoke({"raw_text": raw_text[:1200]})
 
-# 4. AI LOGIC: EXPLANATION GENERATOR (Fixed KeyError)
+# 4. AI LOGIC: EXPLANATION GENERATOR
 def get_tutor_feedback(llm, question, user_ans, correct_letter, is_right):
-    # Fix: Evaluate the string BEFORE passing it to LangChain to prevent dictionary KeyErrors
     result_text = "Correct" if is_right else "Incorrect"
     
     template = """
@@ -73,7 +73,7 @@ def get_tutor_feedback(llm, question, user_ans, correct_letter, is_right):
         "question": question, 
         "user_ans": user_ans, 
         "correct_letter": correct_letter, 
-        "result": result_text  # Passed safely here
+        "result": result_text
     })
 
 # 5. MAIN APPLICATION
@@ -85,14 +85,14 @@ def main():
     # --- BULLETPROOF STATE INITIALIZATION ---
     if 'display_idx' not in st.session_state:
         st.session_state.all_docs = vectorstore.similarity_search("Security+ practice question", k=150)
-        st.session_state.db_idx = 0         # Position in the database
-        st.session_state.display_idx = 1    # The question number on screen (1 to 90)
-        st.session_state.correct_count = 0  # Total correct
-        st.session_state.wrong_count = 0    # Total wrong
+        st.session_state.db_idx = 0         
+        st.session_state.display_idx = 1    
+        st.session_state.correct_count = 0  
+        st.session_state.wrong_count = 0    
         
         # State Machine Variables
-        st.session_state.current_q = None   # Stores the parsed question dictionary
-        st.session_state.phase = "answering" # Can be "answering" or "reviewing"
+        st.session_state.current_q = None   
+        st.session_state.phase = "answering" 
         st.session_state.feedback = ""
         st.session_state.user_choice = None
         st.session_state.is_right = False
@@ -117,15 +117,13 @@ def main():
         return
 
     # --- QUESTION FETCHING LOGIC ---
-    # Only look for a new question if we don't currently have one loaded
     if st.session_state.current_q is None:
         with st.spinner("AI Tutor is finding your next question..."):
             while st.session_state.db_idx < len(st.session_state.all_docs):
-                time.sleep(1) # Protects your free tier rate limit
+                time.sleep(1) # Protect free tier limits
                 raw_content = st.session_state.all_docs[st.session_state.db_idx].page_content
                 formatted = get_clean_question(llm, raw_content)
                 
-                # Check if AI successfully extracted a question
                 if "SKIP" not in formatted and "QUESTION:" in formatted:
                     try:
                         q_text = formatted.split("QUESTION:")[1].split("A:")[0].strip()
@@ -133,21 +131,27 @@ def main():
                         b_opt = formatted.split("B:")[1].split("C:")[0].strip()
                         c_opt = formatted.split("C:")[1].split("D:")[0].strip()
                         d_opt = formatted.split("D:")[1].split("CORRECT:")[0].strip()
-                        correct_letter = formatted.split("CORRECT:")[1].strip()
                         
-                        # Save it cleanly into the session state
+                        # THE FIX: Isolate ONLY the first letter of the correct answer string
+                        raw_correct = formatted.split("CORRECT:")[1].strip()
+                        correct_letter = raw_correct[0].upper() # Grabs 'A', 'B', 'C', or 'D' and ignores the rest
+                        
+                        # Sanity check to ensure it's a valid option
+                        if correct_letter not in ["A", "B", "C", "D"]:
+                            raise ValueError("Invalid letter extracted")
+                        
                         st.session_state.current_q = {
                             "text": q_text,
                             "options": [f"A: {a_opt}", f"B: {b_opt}", f"C: {c_opt}", f"D: {d_opt}"],
                             "correct_letter": correct_letter
                         }
-                        break # Exit the while loop
+                        break # Exit loop successfully
                     except Exception:
                         st.session_state.db_idx += 1 # Move to next doc if parsing fails
                 else:
                     st.session_state.db_idx += 1 # Move to next doc if it's a disclaimer
 
-    # If we ran out of documents while searching
+    # If database is exhausted
     if st.session_state.current_q is None:
         st.error("Ran out of study material in the database.")
         return
@@ -166,32 +170,29 @@ def main():
             if selected_option is None:
                 st.warning("⚠️ Please select an answer before submitting.")
             else:
-                user_letter = selected_option.split(":")[0].strip()
-                is_right = (user_letter == cq["correct_letter"])
+                user_letter = selected_option.split(":")[0].strip() # Example: "C"
+                is_right = (user_letter == cq["correct_letter"]) # Compares "C" to "C" cleanly
                 
-                # Update Scoreboard
                 if is_right:
                     st.session_state.correct_count += 1
                 else:
                     st.session_state.wrong_count += 1
                 
-                # Save answer data
                 st.session_state.user_choice = selected_option
                 st.session_state.is_right = is_right
                 
-                # Get Explanation
                 with st.spinner("AI Tutor is writing your explanation..."):
                     st.session_state.feedback = get_tutor_feedback(
                         llm, cq["text"], selected_option, cq["correct_letter"], is_right
                     )
                 
-                # Switch phase and refresh
+                # Switch to Review phase
                 st.session_state.phase = "reviewing"
                 st.rerun()
 
     # PHASE 2: REVIEWING
     elif st.session_state.phase == "reviewing":
-        # Show what the user selected, but disabled so it can't be changed
+        # Show what user selected, disabled
         st.radio("Your answer:", cq["options"], index=cq["options"].index(st.session_state.user_choice), disabled=True)
         
         st.markdown("---")
@@ -201,18 +202,17 @@ def main():
         else:
             st.error(f"❌ Incorrect. The correct answer was {cq['correct_letter']}.")
         
-        # The Explanation
         st.warning("🤖 **AI Tutor Explanation:**")
         st.write(st.session_state.feedback)
         
-        st.markdown("<br>", unsafe_allow_html=True) # Spacer
+        st.markdown("<br>", unsafe_allow_html=True)
         
-        # THE ONLY WAY OUT OF THIS PHASE
+        # THE ONLY WAY OUT
         if st.button("Next Question ➡️"):
-            st.session_state.db_idx += 1        # Move database index forward
-            st.session_state.display_idx += 1   # Move visual question number forward
-            st.session_state.current_q = None   # Clear current question
-            st.session_state.phase = "answering"# Reset phase back to question mode
+            st.session_state.db_idx += 1        
+            st.session_state.display_idx += 1   
+            st.session_state.current_q = None   
+            st.session_state.phase = "answering"
             st.rerun()
 
 if __name__ == "__main__":
