@@ -1,6 +1,7 @@
 import streamlit as st
 import os
 import time
+import random
 from dotenv import load_dotenv
 from langchain_groq import ChatGroq
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -22,6 +23,7 @@ def load_resources():
     try:
         embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
         vectorstore = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
+        # Using Llama 3.3 for high-quality, readable explanations
         llm = ChatGroq(temperature=0, model_name="llama-3.3-70b-versatile", groq_api_key=api_key)
         return vectorstore, llm
     except Exception as e:
@@ -50,21 +52,22 @@ def get_clean_question(llm, raw_text):
     chain = prompt | llm | StrOutputParser()
     return chain.invoke({"raw_text": raw_text[:1200]})
 
-# 4. AI LOGIC: EXPLANATION GENERATOR
+# 4. AI LOGIC: NON-TECHNICAL EXPLANATION GENERATOR
 def get_tutor_feedback(llm, question, user_ans, correct_letter, is_right):
     result_text = "Correct" if is_right else "Incorrect"
     
     template = """
-    You are an expert CompTIA Security+ (SY0-701) Tutor. 
+    You are a friendly, expert CompTIA Security+ (SY0-701) Tutor. 
     Question: {question}
     Student Choice: {user_ans}
     Correct Answer: {correct_letter}
     Result: {result}
     
-    Task: Write a smooth, readable, and highly educational explanation.
-    1. Clearly explain why the correct answer is the BEST choice.
-    2. If the student was incorrect, gently explain the flaw in their selection.
-    3. Use formatting (like bolding key terms) to make it easy to read.
+    Task: Write a smooth, highly readable explanation tailored for a beginner.
+    1. Explain the core concept using a simple, real-world analogy so a non-technical person can understand.
+    2. Clearly state why the correct answer is the BEST choice.
+    3. If the student was incorrect, gently explain the flaw in their selection without using overly dense jargon.
+    4. Use formatting (like bolding key terms) to make it easy to read.
     """
     prompt = PromptTemplate.from_template(template)
     chain = prompt | llm | StrOutputParser()
@@ -82,9 +85,15 @@ def main():
     vectorstore, llm = load_resources()
     if not vectorstore: return
 
-    # --- BULLETPROOF STATE INITIALIZATION ---
+    # --- STATE INITIALIZATION WITH SHUFFLE ---
     if 'display_idx' not in st.session_state:
-        st.session_state.all_docs = vectorstore.similarity_search("Security+ practice question", k=150)
+        # 1. Fetch the documents
+        docs = vectorstore.similarity_search("Security+ practice question", k=150)
+        
+        # 2. SHUFFLE the documents so the order is different every time!
+        random.shuffle(docs)
+        
+        st.session_state.all_docs = docs
         st.session_state.db_idx = 0         
         st.session_state.display_idx = 1    
         st.session_state.correct_count = 0  
@@ -106,6 +115,7 @@ def main():
         
         st.markdown("---")
         if st.button("🔄 Restart Exam"):
+            # This wipes the memory, causing it to pull a new list and shuffle again
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.rerun()
@@ -132,11 +142,10 @@ def main():
                         c_opt = formatted.split("C:")[1].split("D:")[0].strip()
                         d_opt = formatted.split("D:")[1].split("CORRECT:")[0].strip()
                         
-                        # THE FIX: Isolate ONLY the first letter of the correct answer string
+                        # Isolate ONLY the first letter of the correct answer string
                         raw_correct = formatted.split("CORRECT:")[1].strip()
-                        correct_letter = raw_correct[0].upper() # Grabs 'A', 'B', 'C', or 'D' and ignores the rest
+                        correct_letter = raw_correct[0].upper()
                         
-                        # Sanity check to ensure it's a valid option
                         if correct_letter not in ["A", "B", "C", "D"]:
                             raise ValueError("Invalid letter extracted")
                         
@@ -170,8 +179,8 @@ def main():
             if selected_option is None:
                 st.warning("⚠️ Please select an answer before submitting.")
             else:
-                user_letter = selected_option.split(":")[0].strip() # Example: "C"
-                is_right = (user_letter == cq["correct_letter"]) # Compares "C" to "C" cleanly
+                user_letter = selected_option.split(":")[0].strip()
+                is_right = (user_letter == cq["correct_letter"])
                 
                 if is_right:
                     st.session_state.correct_count += 1
