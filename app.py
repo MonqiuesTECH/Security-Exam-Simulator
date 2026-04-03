@@ -2,6 +2,7 @@ import streamlit as st
 import os
 import time
 import random
+import urllib.parse
 from dotenv import load_dotenv
 from langchain_groq import ChatGroq
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -11,7 +12,7 @@ from langchain_core.output_parsers import StrOutputParser
 
 # 1. PAGE CONFIGURATION
 load_dotenv()
-st.set_page_config(page_title="Security+ SY0-701 Pro Sim", page_icon="🛡️", layout="wide")
+st.set_page_config(page_title="Security+ SY0-701 Adaptive Sim", page_icon="🛡️", layout="wide")
 
 # 2. SECURE RESOURCE LOADING
 @st.cache_resource
@@ -23,7 +24,6 @@ def load_resources():
     try:
         embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
         vectorstore = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
-        # Using Llama 3.3 for high-quality, readable explanations
         llm = ChatGroq(temperature=0, model_name="llama-3.3-70b-versatile", groq_api_key=api_key)
         return vectorstore, llm
     except Exception as e:
@@ -89,7 +89,21 @@ def get_tutor_feedback(llm, question, user_ans, correct_letter, is_right, diffic
         "difficulty": difficulty
     })
 
-# 5. MAIN APPLICATION
+# 5. AI LOGIC: TOPIC EXTRACTOR FOR VIDEO REHAB
+def get_video_topic(llm, question):
+    template = """
+    Analyze this Security+ question and extract the ONE core concept or technology it is asking about in 2 to 4 words.
+    Example: If it's about ports, output "Network Ports". If it's about Active Directory, output "802.1X Authentication".
+    
+    Question: {question}
+    
+    Output ONLY the short topic name, nothing else.
+    """
+    prompt = PromptTemplate.from_template(template)
+    chain = prompt | llm | StrOutputParser()
+    return chain.invoke({"question": question})
+
+# 6. MAIN APPLICATION
 def main():
     st.title("🛡️ Security+ SY0-701 Pro Simulator")
     vectorstore, llm = load_resources()
@@ -97,10 +111,10 @@ def main():
 
     # --- BULLETPROOF STATE INITIALIZATION ---
     if 'display_idx' not in st.session_state:
-        st.session_state.clear() # Wipe old version junk
+        st.session_state.clear()
         
         docs = vectorstore.similarity_search("Security+ practice question", k=150)
-        random.shuffle(docs) # Mix up the questions
+        random.shuffle(docs)
         
         st.session_state.all_docs = docs
         st.session_state.db_idx = 0         
@@ -111,16 +125,16 @@ def main():
         st.session_state.difficulty = "NORMAL"
         
         st.session_state.current_q = None   
-        st.session_state.phase = "answering" 
+        st.session_state.phase = "answering" # answering, reviewing, or video_rehab
         st.session_state.feedback = ""
         st.session_state.user_choice = None
         st.session_state.is_right = False
+        st.session_state.rehab_topic = ""
 
-    # --- ADAPTIVE DIFFICULTY LOGIC (Hidden from UI) ---
-    # Trigger HARD at 3 right, EASY at 3 wrong.
+    # --- ADAPTIVE DIFFICULTY LOGIC ---
     if st.session_state.streak >= 3:
         st.session_state.difficulty = "HARD"
-    elif st.session_state.streak <= -3:
+    elif st.session_state.streak <= -3: # Using -3 for difficulty, -5 triggers the video timeout
         st.session_state.difficulty = "EASY"
     else:
         st.session_state.difficulty = "NORMAL"
@@ -139,7 +153,6 @@ def main():
             st.session_state.clear()
             st.rerun()
 
-    # --- EXAM COMPLETION CHECK ---
     if st.session_state.display_idx > 90 or st.session_state.db_idx >= len(st.session_state.all_docs):
         st.balloons()
         st.success(f"🎉 Exam Finished! Final Score: {st.session_state.correct_count} / 90")
@@ -149,7 +162,7 @@ def main():
     if st.session_state.current_q is None:
         with st.spinner("AI Tutor is finding your next question..."):
             while st.session_state.db_idx < len(st.session_state.all_docs):
-                time.sleep(1.2) # Protect free tier limits
+                time.sleep(1.2)
                 raw_content = st.session_state.all_docs[st.session_state.db_idx].page_content
                 formatted = get_adaptive_question(llm, raw_content, st.session_state.difficulty)
                 
@@ -162,7 +175,7 @@ def main():
                         d_opt = formatted.split("D:")[1].split("CORRECT:")[0].strip()
                         
                         raw_correct = formatted.split("CORRECT:")[1].strip()
-                        correct_letter = raw_correct[0].upper() # Isolates just the letter
+                        correct_letter = raw_correct[0].upper()
                         
                         if correct_letter not in ["A", "B", "C", "D"]:
                             raise ValueError("Invalid letter")
@@ -185,11 +198,10 @@ def main():
     # --- UI RENDERING ---
     cq = st.session_state.current_q
     
-    st.subheader(f"Question {st.session_state.display_idx}")
-    st.info(cq["text"])
-
     # PHASE 1: ANSWERING
     if st.session_state.phase == "answering":
+        st.subheader(f"Question {st.session_state.display_idx}")
+        st.info(cq["text"])
         selected_option = st.radio("Select your answer:", cq["options"], index=None)
 
         if st.button("Submit Answer"):
@@ -199,20 +211,16 @@ def main():
                 user_letter = selected_option.split(":")[0].strip()
                 is_right = (user_letter == cq["correct_letter"])
                 
-                # --- SCORE AND STREAK LOGIC ---
                 if is_right:
                     st.session_state.correct_count += 1
-                    # If streak was negative, reset to 1. Otherwise add 1.
                     st.session_state.streak = st.session_state.streak + 1 if st.session_state.streak > 0 else 1
                 else:
                     st.session_state.wrong_count += 1
-                    # If streak was positive, reset to -1. Otherwise subtract 1.
                     st.session_state.streak = st.session_state.streak - 1 if st.session_state.streak < 0 else -1
                 
                 st.session_state.user_choice = selected_option
                 st.session_state.is_right = is_right
                 
-                # Pass difficulty to tutor so it knows how to talk to the student
                 with st.spinner("AI Tutor is writing your explanation..."):
                     st.session_state.feedback = get_tutor_feedback(
                         llm, cq["text"], selected_option, cq["correct_letter"], is_right, st.session_state.difficulty
@@ -223,6 +231,8 @@ def main():
 
     # PHASE 2: REVIEWING
     elif st.session_state.phase == "reviewing":
+        st.subheader(f"Question {st.session_state.display_idx}")
+        st.info(cq["text"])
         st.radio("Your answer:", cq["options"], index=cq["options"].index(st.session_state.user_choice), disabled=True)
         
         st.markdown("---")
@@ -236,13 +246,50 @@ def main():
         
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # THE ONLY WAY OUT
         if st.button("Next Question ➡️"):
-            st.session_state.db_idx += 1        
-            st.session_state.display_idx += 1   
-            st.session_state.current_q = None   
-            st.session_state.phase = "answering"
-            st.rerun()
+            # CHECK FOR VIDEO TIMEOUT (5 Wrong in a row)
+            if st.session_state.streak <= -5:
+                with st.spinner("Preparing your study timeout..."):
+                    st.session_state.rehab_topic = get_video_topic(llm, cq["text"])
+                st.session_state.phase = "video_rehab"
+                st.rerun()
+            else:
+                st.session_state.db_idx += 1        
+                st.session_state.display_idx += 1   
+                st.session_state.current_q = None   
+                st.session_state.phase = "answering"
+                st.rerun()
+
+    # PHASE 3: VIDEO REHAB TIMEOUT
+    elif st.session_state.phase == "video_rehab":
+        st.error("🛑 Study Timeout Triggered: You've missed 5 questions in a row.")
+        st.write("When we guess, we stop learning. Let's rebuild your foundation before moving forward.")
+        
+        st.markdown("---")
+        st.subheader(f"📚 Recommended Review Topic: **{st.session_state.rehab_topic}**")
+        
+        # Create a dynamic search link to Professor Messer
+        search_query = urllib.parse.quote(f"Professor Messer SY0-701 {st.session_state.rehab_topic}")
+        youtube_link = f"https://www.youtube.com/results?search_query={search_query}"
+        
+        st.info(f"The industry standard for this certification is Professor Messer. Please click the link below to find his lesson on **{st.session_state.rehab_topic}**.")
+        st.markdown(f"### 📺 [Click Here to Search YouTube for '{st.session_state.rehab_topic}' Lessons]({youtube_link})")
+        
+        st.markdown("---")
+        st.write("*(Honor System: I cannot see your browser to verify you watched the video. You are studying for your own future!)*")
+        
+        # Text input to proceed
+        user_done = st.text_input("Type **done** when you have finished reviewing the material:")
+        
+        if user_done.strip().lower() == "done":
+            st.success("Great job reviewing! Let's get back into the exam.")
+            if st.button("Resume Exam ➡️"):
+                st.session_state.streak = 0         # Reset streak so they aren't trapped
+                st.session_state.db_idx += 1        
+                st.session_state.display_idx += 1   
+                st.session_state.current_q = None   
+                st.session_state.phase = "answering"
+                st.rerun()
 
 if __name__ == "__main__":
     main()
