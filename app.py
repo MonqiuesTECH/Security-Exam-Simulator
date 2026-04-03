@@ -62,22 +62,14 @@ def update_live_score(user, correct, total):
         save_db(db)
 
 # ==========================================
-# UI COMPONENTS
+# UI COMPONENTS (Inclusive & Professional)
 # ==========================================
 def render_footer():
     st.markdown("---")
     st.markdown("<p style='text-align: center; color: grey;'>Created and Powered By Monique Bruce</p>", unsafe_allow_html=True)
 
-def render_login_header():
-    """Safely loads logo.jpeg to prevent crashes if not found."""
-    image_name = "logo.jpeg"
-    if os.path.exists(image_name):
-        st.image(image_name, use_container_width=True)
-    
-    st.title("🛡️ Cyber Punk University")
-    st.subheader("Secure Access Portal")
-
 def check_password():
+    """Handles the Cyber Punk University Login UI - Side-by-Side Layout"""
     def password_entered():
         user = st.session_state["username"].strip()
         pw = st.session_state["password"].strip()
@@ -91,29 +83,41 @@ def check_password():
         else:
             st.session_state["password_correct"] = False
 
-    if "password_correct" not in st.session_state:
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            render_login_header()
+    if "password_correct" not in st.session_state or not st.session_state["password_correct"]:
+        # Add a little top spacing so it sits perfectly in the middle of the screen
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        
+        # Create a 4-column layout to center the content side-by-side
+        spacer_left, col_img, col_form, spacer_right = st.columns([1, 2, 2, 1])
+        
+        with col_img:
+            # The image will now naturally fit inside this half-column without dominating
+            image_name = "logo.jpeg"
+            if os.path.exists(image_name):
+                st.image(image_name, use_container_width=True)
+            else:
+                st.info("Cyber Punk University Logo Placeholder")
+
+        with col_form:
+            st.title("🛡️ Cyber Punk University")
+            st.subheader("Secure Access Portal")
             st.text_input("Username", key="username")
             st.text_input("Password", type="password", key="password")
             st.button("Authorize Access", on_click=password_entered, use_container_width=True)
+            
+            # Show error message if they typed it wrong
+            if "password_correct" in st.session_state and not st.session_state["password_correct"]:
+                st.error("🚫 Access Denied: Invalid Credentials.")
+                
+        # Push the footer to the bottom
+        st.markdown("<br><br><br>", unsafe_allow_html=True)
         render_footer()
         return False
-    elif not st.session_state["password_correct"]:
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            render_login_header()
-            st.text_input("Username", key="username")
-            st.text_input("Password", type="password", key="password")
-            st.button("Authorize Access", on_click=password_entered, use_container_width=True)
-            st.error("🚫 Access Denied: Invalid Credentials.")
-        render_footer()
-        return False
+        
     return True
 
 # ==========================================
-# RESOURCE LOADING & AI LOGIC
+# RESOURCE & AI LOGIC
 # ==========================================
 @st.cache_resource
 def load_resources():
