@@ -62,15 +62,15 @@ def update_live_score(user, correct, total):
         save_db(db)
 
 # ==========================================
-# UI COMPONENTS (Inclusive & Professional)
+# UI COMPONENTS
 # ==========================================
 def render_footer():
     st.markdown("---")
     st.markdown("<p style='text-align: center; color: grey;'>Created and Powered By Monique Bruce</p>", unsafe_allow_html=True)
 
 def render_login_header():
-    """Safely loads the image if it exists, prevents crashes if it doesn't."""
-    image_name = "WhatsApp Image 2026-02-07 at 13.58.20.jpg"
+    """Safely loads logo.jpeg to prevent crashes if not found."""
+    image_name = "logo.jpeg"
     if os.path.exists(image_name):
         st.image(image_name, use_container_width=True)
     
@@ -78,7 +78,6 @@ def render_login_header():
     st.subheader("Secure Access Portal")
 
 def check_password():
-    """Handles the Cyber Punk University Login UI"""
     def password_entered():
         user = st.session_state["username"].strip()
         pw = st.session_state["password"].strip()
@@ -93,7 +92,6 @@ def check_password():
             st.session_state["password_correct"] = False
 
     if "password_correct" not in st.session_state:
-        # Initial Login Screen
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             render_login_header()
@@ -103,7 +101,6 @@ def check_password():
         render_footer()
         return False
     elif not st.session_state["password_correct"]:
-        # Failed Attempt Screen
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             render_login_header()
@@ -116,25 +113,56 @@ def check_password():
     return True
 
 # ==========================================
-# RESOURCE & AI LOGIC
+# RESOURCE LOADING & AI LOGIC
 # ==========================================
 @st.cache_resource
 def load_resources():
     api_key = st.secrets.get("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
+    if not api_key:
+        st.error("🔑 GROQ_API_KEY is missing in Streamlit Secrets!")
+        st.stop()
     try:
         embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
         vectorstore = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
         llm = ChatGroq(temperature=0, model_name="llama-3.3-70b-versatile", groq_api_key=api_key)
         return vectorstore, llm
-    except Exception: return None, None
+    except Exception as e:
+        st.error(f"Critical Initialization Error: {e}")
+        return None, None
 
 def get_adaptive_question(llm, raw_text, diff):
-    t = PromptTemplate.from_template("Extract ONE CompTIA Security+ question. Level: {d}\nText: {r}\nFormat: QUESTION, A, B, C, D, CORRECT.")
-    return (t | llm | StrOutputParser()).invoke({"r": raw_text[:1200], "d": diff})
+    template = """
+    Extract ONE CompTIA Security+ question EXACTLY as written. 
+    DIFFICULTY TARGET: {difficulty}
+    If the text is a disclaimer or doesn't match, return: SKIP.
+    RAW TEXT: {raw_text}
+    FORMAT:
+    QUESTION: [text]
+    A: [text]
+    B: [text]
+    C: [text]
+    D: [text]
+    CORRECT: [A, B, C, or D]
+    CRITICAL INSTRUCTION: Stop generating text immediately after providing the single CORRECT letter.
+    """
+    prompt = PromptTemplate.from_template(template)
+    chain = prompt | llm | StrOutputParser()
+    return chain.invoke({"raw_text": raw_text[:1200], "difficulty": diff})
 
-def get_tutor_feedback(llm, q, ua, cl, ir, diff):
-    t = PromptTemplate.from_template("You are an expert Security+ tutor. Question: {q}, User Selected: {ua}, Correct is: {cl}, Result: {ir}, Hidden Difficulty: {d}. Provide a smooth, beginner-friendly explanation using a real-world analogy if the student is struggling.")
-    return (t | llm | StrOutputParser()).invoke({"q": q, "ua": ua, "cl": cl, "ir": ir, "d": diff})
+def get_tutor_feedback(llm, question, user_ans, correct_letter, is_right, diff):
+    result_text = "Correct" if is_right else "Incorrect"
+    template = """
+    You are an expert Security+ tutor. 
+    Question: {question}
+    Student Choice: {user_ans}
+    Correct Answer: {correct_letter}
+    Result: {result}
+    Level: {difficulty}
+    Provide a smooth, beginner-friendly explanation using a real-world analogy if the student is struggling.
+    """
+    prompt = PromptTemplate.from_template(template)
+    chain = prompt | llm | StrOutputParser()
+    return chain.invoke({"question": question, "user_ans": user_ans, "correct_letter": correct_letter, "result": result_text, "difficulty": diff})
 
 def get_video_topic(llm, question):
     template = "Analyze this Security+ question and extract the ONE core concept in 2 to 4 words. Question: {question}\nOutput ONLY the short topic name."
@@ -148,12 +176,10 @@ def grade_pbq(llm, pbq_title, pbq_scenario, user_answers):
     PBQ Title: {title}
     Scenario: {scenario}
     Student's Submitted Answers: {answers}
-    
     Task:
     1. Tell the student if they got the configuration completely right, partially right, or wrong.
-    2. Go through their answers and explain the "Why" using simple terms.
+    2. Explain the "Why" using simple terms.
     3. Provide the definitive correct configuration at the end.
-    
     CRITICAL INSTRUCTION:
     If the student got EVERY single part 100% correct, you MUST put the exact phrase "[PASSED]" at the very end of your response. 
     If they got ANYTHING wrong (even partially), you MUST put the exact phrase "[FAILED]" at the very end of your response.
@@ -181,7 +207,7 @@ PBQ_DB = {
 }
 
 # ==========================================
-# ADMIN DASHBOARD (Instructor View)
+# ADMIN DASHBOARD
 # ==========================================
 def run_admin_dashboard():
     st.title("👨🏾‍🏫 Instructor Command Center")
@@ -222,7 +248,7 @@ def run_admin_dashboard():
             else: st.info(f"No active data for {student}.")
 
 # ==========================================
-# STUDENT SIMULATOR (Adaptive Engine)
+# STUDENT SIMULATOR (Adaptive Engine & PBQ)
 # ==========================================
 def run_student_simulator(vs, llm):
     user = st.session_state["current_user"]
@@ -237,7 +263,7 @@ def run_student_simulator(vs, llm):
     
     if any(key not in st.session_state for key in REQUIRED_KEYS):
         st.session_state.clear()
-        docs = vs.similarity_search("Security+ Exam Content", k=120)
+        docs = vs.similarity_search("Security+", k=120)
         random.shuffle(docs)
         
         st.session_state.all_docs = docs
@@ -289,11 +315,12 @@ def run_student_simulator(vs, llm):
             for k in keys_to_clear: st.session_state.pop(k, None)
             st.rerun()
 
+    st.subheader(f"Cyber Punk Training Module: {st.session_state.app_mode}")
+
     # ==========================================
     # MODE 1: PBQ PRACTICE LAB
     # ==========================================
     if st.session_state.app_mode == "PBQ Hands-on Lab":
-        st.header("💻 Performance-Based Questions (PBQs)")
         st.write("Select a scenario below. Difficulty increases from 1 to 12.")
         
         pbq_id = st.selectbox("Select PBQ Scenario:", list(PBQ_DB.keys()), format_func=lambda x: f"PBQ {x}: {PBQ_DB[x]['title']} (Level {x})")
@@ -343,10 +370,8 @@ def run_student_simulator(vs, llm):
                     st.session_state.pbq_feedback = grade_pbq(llm, pbq['title'], pbq['desc'], user_submission)
                     
                     passed = "[PASSED]" in st.session_state.pbq_feedback
-                    if passed:
-                        log_event(user, "PBQ Passed", f"Aced {pbq['title']}")
-                    else:
-                        log_event(user, "PBQ Failed", f"Struggled with {pbq['title']}", pbq['topic'])
+                    if passed: log_event(user, "PBQ Passed", f"Aced {pbq['title']}")
+                    else: log_event(user, "PBQ Failed", f"Struggled with {pbq['title']}", pbq['topic'])
         
         if st.session_state.pbq_feedback:
             st.markdown("---")
@@ -375,7 +400,7 @@ def run_student_simulator(vs, llm):
     # MODE 2: ADAPTIVE SIMULATOR
     # ==========================================
     elif st.session_state.app_mode == "Adaptive Simulator":
-        st.subheader(f"Cyber Punk Training Module ({st.session_state.difficulty} Mode)")
+        st.write(f"*(Operating at {st.session_state.difficulty} Difficulty Level)*")
         
         if st.session_state.streak >= 3: st.session_state.difficulty = "HARD"
         elif st.session_state.streak <= -3: st.session_state.difficulty = "EASY"
@@ -495,7 +520,6 @@ def run_student_simulator(vs, llm):
 # MAIN EXECUTION THREAD
 # ==========================================
 if check_password():
-    # Show Sidebar Logout & Status
     with st.sidebar:
         st.write(f"Authorized User: **{st.session_state['current_user']}**")
         if st.button("🚪 Terminate Session"):
@@ -504,7 +528,6 @@ if check_password():
             st.session_state.clear()
             st.rerun()
 
-    # Router
     if st.session_state["current_user"] == "admin":
         run_admin_dashboard()
     else:
