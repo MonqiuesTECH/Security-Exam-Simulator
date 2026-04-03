@@ -17,7 +17,7 @@ load_dotenv()
 st.set_page_config(page_title="Security+ SY0-701 Simulator", page_icon="🛡️", layout="wide")
 
 # ==========================================
-# DATABASE LOGIC (Tracks Time & Weaknesses)
+# DATABASE LOGIC (Tracks Time, Scores, & Weaknesses)
 # ==========================================
 DB_FILE = "study_logs.json"
 
@@ -34,7 +34,7 @@ def save_db(data):
 def ensure_user_exists(user):
     db = load_db()
     if user not in db:
-        db[user] = {"time_spent_sec": 0, "logs": [], "weak_topics": []}
+        db[user] = {"time_spent_sec": 0, "logs": [], "weak_topics": [], "current_score": "0 / 0"}
         save_db(db)
     return db
 
@@ -47,7 +47,6 @@ def log_event(user, event_type, notes, topic=None):
         "notes": notes
     })
     
-    # If they failed a topic, add it to their weak areas list
     if topic and topic not in db[user]["weak_topics"]:
         db[user]["weak_topics"].append(topic)
         
@@ -57,13 +56,18 @@ def ping_time_tracker(user):
     """Calculates time spent since the last interaction and adds it to the DB"""
     if "last_ping" in st.session_state:
         elapsed = time.time() - st.session_state.last_ping
-        # Only log reasonable intervals (prevents background tab inflation)
         if elapsed < 3600: 
             db = ensure_user_exists(user)
             db[user]["time_spent_sec"] += elapsed
             save_db(db)
     st.session_state.last_ping = time.time()
 
+def update_live_score(user, correct, total):
+    """Silently updates the database with the student's current quiz score"""
+    db = load_db()
+    if user in db:
+        db[user]["current_score"] = f"{correct} / {total}"
+        save_db(db)
 
 # ==========================================
 # SECURE LOGIN SYSTEM
@@ -76,7 +80,6 @@ def check_password():
             st.session_state["current_user"] = user
             del st.session_state["password"]  
             
-            # Start the time tracker for students
             if user != "admin":
                 st.session_state.last_ping = time.time()
                 log_event(user, "Logged In", "Student started a study session.")
@@ -85,7 +88,7 @@ def check_password():
 
     if "password_correct" not in st.session_state:
         st.title("🔒 Security+ Simulator Login")
-        st.text_input("Username", key="username")
+        st.text_input("Username (e.g., admin, guest1, guest2)", key="username")
         st.text_input("Password", type="password", key="password")
         st.button("Login", on_click=password_entered)
         return False
@@ -98,7 +101,6 @@ def check_password():
         return False
     else:
         return True
-
 
 # ==========================================
 # SECURE RESOURCE & AI LOADING
@@ -205,7 +207,7 @@ PBQ_DB = {
 # ==========================================
 def run_admin_dashboard():
     st.title("👨‍🏫 Instructor Dashboard")
-    st.write("Monitor student progress, study times, and weak areas.")
+    st.write("Monitor student progress, live scores, and weak areas.")
     
     db = load_db()
     
@@ -213,47 +215,55 @@ def run_admin_dashboard():
         st.info("No student data has been recorded yet.")
         return
         
-    # Exclude admin from metrics
     students = [u for u in db.keys() if u != "admin"]
     
     if not students:
         st.info("No students have logged in yet.")
         return
 
-    # Tabs for organization
     tab1, tab2 = st.tabs(["📊 Overview", "📋 Detailed Activity Logs"])
     
     with tab1:
-        for student in students:
+        cols = st.columns(len(students))
+        
+        for idx, student in enumerate(students):
             data = db[student]
             total_hours = data["time_spent_sec"] / 3600
+            current_score = data.get("current_score", "0 / 0")
             
-            st.markdown(f"### Student: `{student}`")
-            col1, col2 = st.columns(2)
-            col1.metric("Total Study Time", f"{total_hours:.2f} Hours")
-            
-            with col2:
+            with cols[idx]:
+                st.markdown(f"### 🧑‍🎓 `{student}`")
+                st.metric("Total Study Time", f"{total_hours:.2f} Hours")
+                st.metric("Live Quiz Score", current_score)
+                
                 st.write("**Topics Needing Review:**")
                 if data["weak_topics"]:
                     for topic in data["weak_topics"]:
                         st.error(f"⚠️ {topic}")
                 else:
                     st.success("No weak topics identified yet!")
-            st.markdown("---")
+                
+                st.markdown("---")
+                # ADMIN ONLY: Delete User Data
+                if st.button(f"🗑️ Delete {student}'s Data", key=f"del_{student}"):
+                    db = load_db()
+                    if student in db:
+                        del db[student]
+                        save_db(db)
+                        st.rerun()
             
     with tab2:
         st.write("### Raw Event Logs")
         for student in students:
             st.write(f"**{student}'s Activity:**")
-            logs = db[student]["logs"]
+            logs = db[student].get("logs", [])
             if logs:
-                for log in logs[:50]: # Show last 50 events
+                for log in logs[:50]: 
                     with st.expander(f"{log['timestamp']} - {log['event']}"):
                         st.write(f"**Notes:** {log['notes']}")
             else:
                 st.write("No activity logged.")
             st.markdown("<br>", unsafe_allow_html=True)
-
 
 # ==========================================
 # STUDENT SIMULATOR (GUEST MODE)
@@ -261,10 +271,9 @@ def run_admin_dashboard():
 def run_student_simulator(vectorstore, llm):
     user = st.session_state["current_user"]
     
-    # Run the invisible time tracker
+    # Ping the auto-save time tracker
     ping_time_tracker(user)
 
-    # --- STATE INITIALIZATION ---
     REQUIRED_KEYS = [
         'app_mode', 'all_docs', 'db_idx', 'display_idx', 'correct_count', 
         'wrong_count', 'streak', 'difficulty', 'current_q', 'phase', 
@@ -296,12 +305,10 @@ def run_student_simulator(vectorstore, llm):
         st.session_state.pbq_feedback = ""
         st.session_state.current_pbq_id = None
         
-        # Restore user credentials after wipe
         st.session_state["password_correct"] = True
         st.session_state["current_user"] = user
         st.session_state.last_ping = time.time()
 
-    # --- SIDEBAR NAVIGATION ---
     with st.sidebar:
         st.header("🧭 Exam Navigation")
         st.radio("Select Training Mode:", ["Adaptive Simulator", "PBQ Practice Lab"], key="app_mode")
@@ -321,9 +328,23 @@ def run_student_simulator(vectorstore, llm):
             st.markdown(f"- [{topic}](https://www.youtube.com/results?search_query={query})")
             
         st.markdown("---")
-        if st.button("💾 Save Progress & Reset App"):
-            log_event(user, "Reset App", "Student cleared their current session.", None)
-            st.session_state.clear()
+        # GUEST ONLY: Restart Quiz (Does NOT wipe database logs)
+        if st.button("🔄 Restart Quiz"):
+            log_event(user, "Restarted Quiz", "Student started a fresh exam.")
+            
+            # Wipe UI Memory Only
+            keys_to_clear = [
+                'all_docs', 'db_idx', 'display_idx', 'correct_count', 
+                'wrong_count', 'streak', 'difficulty', 'current_q', 'phase', 
+                'feedback', 'user_choice', 'is_right', 'rehab_topic', 
+                'pbq_feedback', 'current_pbq_id'
+            ]
+            for key in keys_to_clear:
+                if key in st.session_state:
+                    del st.session_state[key]
+            
+            # Reset live score in DB
+            update_live_score(user, 0, 0)
             st.rerun()
 
     # ==========================================
@@ -419,10 +440,6 @@ def run_student_simulator(vectorstore, llm):
         if st.session_state.display_idx > 90:
             st.balloons()
             st.success(f"🎉 Exam Finished! Final Score: {st.session_state.correct_count} / 90")
-            if st.button("Log Score & Restart"):
-                log_event(user, "Exam Completed", f"Score: {st.session_state.correct_count}/90")
-                st.session_state.clear()
-                st.rerun()
             return
 
         if st.session_state.current_q is None:
@@ -473,6 +490,10 @@ def run_student_simulator(vectorstore, llm):
                     
                     st.session_state.user_choice = selected_option
                     st.session_state.is_right = is_right
+                    
+                    # Update live DB score for Admin to see
+                    update_live_score(user, st.session_state.correct_count, st.session_state.display_idx)
+                    
                     with st.spinner("AI Tutor is writing your explanation..."):
                         st.session_state.feedback = get_tutor_feedback(llm, cq["text"], selected_option, cq["correct_letter"], is_right, st.session_state.difficulty)
                     st.session_state.phase = "reviewing"
@@ -495,7 +516,6 @@ def run_student_simulator(vectorstore, llm):
                     with st.spinner("Preparing your study timeout..."):
                         topic = get_video_topic(llm, cq["text"])
                         st.session_state.rehab_topic = topic
-                        # LOG THE WEAK TOPIC TO INSTRUCTOR DASHBOARD
                         log_event(user, "Timeout Triggered", "Failed 3 in a row", topic)
                         
                     st.session_state.phase = "video_rehab"
