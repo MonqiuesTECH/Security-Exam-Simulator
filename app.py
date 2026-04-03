@@ -11,7 +11,7 @@ from langchain_core.output_parsers import StrOutputParser
 
 # 1. PAGE CONFIGURATION
 load_dotenv()
-st.set_page_config(page_title="Security+ SY0-701 Adaptive Sim", page_icon="🛡️", layout="wide")
+st.set_page_config(page_title="Security+ SY0-701 Pro Sim", page_icon="🛡️", layout="wide")
 
 # 2. SECURE RESOURCE LOADING
 @st.cache_resource
@@ -23,13 +23,14 @@ def load_resources():
     try:
         embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
         vectorstore = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
+        # Using Llama 3.3 for high-quality, readable explanations
         llm = ChatGroq(temperature=0, model_name="llama-3.3-70b-versatile", groq_api_key=api_key)
         return vectorstore, llm
     except Exception as e:
         st.error(f"Critical Initialization Error: {e}")
         return None, None
 
-# 3. AI LOGIC: ADAPTIVE QUESTION PARSER
+# 3. AI LOGIC: INVISIBLE ADAPTIVE PARSER
 def get_adaptive_question(llm, raw_text, difficulty):
     template = """
     Extract ONE CompTIA Security+ question EXACTLY as written. 
@@ -39,7 +40,7 @@ def get_adaptive_question(llm, raw_text, difficulty):
     - If NORMAL: Extract standard scenario-based questions.
     - If HARD: Extract complex scenarios, log analysis, or multi-step troubleshooting.
     
-    If the text is a disclaimer, table of contents, or does not somewhat match the difficulty, return: SKIP.
+    If the text is a disclaimer, table of contents, or does not match the difficulty, return: SKIP.
     
     RAW TEXT: {raw_text}
 
@@ -51,28 +52,31 @@ def get_adaptive_question(llm, raw_text, difficulty):
     D: [text]
     CORRECT: [A, B, C, or D]
     
-    CRITICAL INSTRUCTION: Stop generating text immediately after providing the single CORRECT letter. Do not extract multiple questions.
+    CRITICAL INSTRUCTION: Stop generating text immediately after providing the single CORRECT letter.
     """
     prompt = PromptTemplate.from_template(template)
     chain = prompt | llm | StrOutputParser()
     return chain.invoke({"raw_text": raw_text[:1200], "difficulty": difficulty})
 
-# 4. AI LOGIC: NON-TECHNICAL EXPLANATION GENERATOR
-def get_tutor_feedback(llm, question, user_ans, correct_letter, is_right):
+# 4. AI LOGIC: ADAPTIVE TEACHING TUTOR
+def get_tutor_feedback(llm, question, user_ans, correct_letter, is_right, difficulty):
     result_text = "Correct" if is_right else "Incorrect"
     
     template = """
-    You are a friendly, expert CompTIA Security+ (SY0-701) Tutor. 
+    You are an expert, empathetic CompTIA Security+ (SY0-701) Tutor. 
     Question: {question}
     Student Choice: {user_ans}
     Correct Answer: {correct_letter}
     Result: {result}
+    Student's Current Hidden Level: {difficulty}
     
-    Task: Write a smooth, highly readable explanation tailored for a beginner.
-    1. Explain the core concept using a simple, real-world analogy so a non-technical person can understand clearly.
-    2. Explicitly state why the correct answer is the BEST choice.
-    3. If the student was incorrect, gently explain the flaw in their selection without using overly dense jargon.
-    4. Use formatting (like bolding key terms) to make it easy to read.
+    Task: Write a smooth, highly readable explanation tailored to the student's level.
+    1. If the level is EASY (student is struggling): Use a simple, real-world analogy (like a house, a bouncer, a lock) to explain the core concept. Avoid dense jargon. Focus on building confidence.
+    2. If the level is HARD (student is excelling): Go deeper into the technical "why" and provide an advanced pro-tip.
+    3. If NORMAL: Provide a clear, standard CompTIA explanation.
+    4. Explicitly state why the correct answer is the BEST choice.
+    5. If the student was incorrect, gently explain the flaw in their selection.
+    6. Use formatting (bolding key terms) to make it easy to read.
     """
     prompt = PromptTemplate.from_template(template)
     chain = prompt | llm | StrOutputParser()
@@ -81,22 +85,22 @@ def get_tutor_feedback(llm, question, user_ans, correct_letter, is_right):
         "question": question, 
         "user_ans": user_ans, 
         "correct_letter": correct_letter, 
-        "result": result_text
+        "result": result_text,
+        "difficulty": difficulty
     })
 
 # 5. MAIN APPLICATION
 def main():
-    st.title("🛡️ Security+ SY0-701 Adaptive Simulator")
+    st.title("🛡️ Security+ SY0-701 Pro Simulator")
     vectorstore, llm = load_resources()
     if not vectorstore: return
 
-    # --- BULLETPROOF STATE INITIALIZATION (Version Upgrade Safe) ---
-    # We check for 'difficulty' specifically to ensure old cached sessions are wiped
-    if 'difficulty' not in st.session_state:
+    # --- BULLETPROOF STATE INITIALIZATION ---
+    if 'display_idx' not in st.session_state:
         st.session_state.clear() # Wipe old version junk
         
         docs = vectorstore.similarity_search("Security+ practice question", k=150)
-        random.shuffle(docs) # Mix up the questions!
+        random.shuffle(docs) # Mix up the questions
         
         st.session_state.all_docs = docs
         st.session_state.db_idx = 0         
@@ -112,10 +116,11 @@ def main():
         st.session_state.user_choice = None
         st.session_state.is_right = False
 
-    # --- ADAPTIVE DIFFICULTY LOGIC ---
+    # --- ADAPTIVE DIFFICULTY LOGIC (Hidden from UI) ---
+    # Trigger HARD at 3 right, EASY at 3 wrong.
     if st.session_state.streak >= 3:
         st.session_state.difficulty = "HARD"
-    elif st.session_state.streak <= -5:
+    elif st.session_state.streak <= -3:
         st.session_state.difficulty = "EASY"
     else:
         st.session_state.difficulty = "NORMAL"
@@ -124,10 +129,6 @@ def main():
     with st.sidebar:
         st.header("📊 Exam Progress")
         st.write(f"**Question:** {st.session_state.display_idx} / 90")
-        
-        st.markdown("---")
-        st.write(f"**Level:** {st.session_state.difficulty}")
-        st.write(f"**Streak:** {st.session_state.streak}")
         
         st.markdown("---")
         st.success(f"✅ Correct: {st.session_state.correct_count}")
@@ -146,7 +147,7 @@ def main():
 
     # --- QUESTION FETCHING LOGIC ---
     if st.session_state.current_q is None:
-        with st.spinner(f"AI Tutor is preparing a {st.session_state.difficulty} question..."):
+        with st.spinner("AI Tutor is finding your next question..."):
             while st.session_state.db_idx < len(st.session_state.all_docs):
                 time.sleep(1.2) # Protect free tier limits
                 raw_content = st.session_state.all_docs[st.session_state.db_idx].page_content
@@ -161,7 +162,7 @@ def main():
                         d_opt = formatted.split("D:")[1].split("CORRECT:")[0].strip()
                         
                         raw_correct = formatted.split("CORRECT:")[1].strip()
-                        correct_letter = raw_correct[0].upper() # Isolates just 'A', 'B', 'C', or 'D'
+                        correct_letter = raw_correct[0].upper() # Isolates just the letter
                         
                         if correct_letter not in ["A", "B", "C", "D"]:
                             raise ValueError("Invalid letter")
@@ -211,9 +212,10 @@ def main():
                 st.session_state.user_choice = selected_option
                 st.session_state.is_right = is_right
                 
+                # Pass difficulty to tutor so it knows how to talk to the student
                 with st.spinner("AI Tutor is writing your explanation..."):
                     st.session_state.feedback = get_tutor_feedback(
-                        llm, cq["text"], selected_option, cq["correct_letter"], is_right
+                        llm, cq["text"], selected_option, cq["correct_letter"], is_right, st.session_state.difficulty
                     )
                 
                 st.session_state.phase = "reviewing"
