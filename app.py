@@ -81,14 +81,13 @@ def save_timed_score(user, score_str):
         save_db(db)
 
 # ==========================================
-# UI COMPONENTS (Inclusive & Professional)
+# UI COMPONENTS
 # ==========================================
 def render_footer():
     st.markdown("---")
     st.markdown("<p style='text-align: center; color: grey;'>Created and Powered By Monique Bruce</p>", unsafe_allow_html=True)
 
 def render_login_header():
-    """Safely loads logo.jpeg to prevent crashes if not found."""
     image_name = "logo.jpeg"
     if os.path.exists(image_name):
         st.image(image_name, use_container_width=True)
@@ -98,7 +97,6 @@ def render_login_header():
 
 def check_password():
     def password_entered():
-        # THE IPHONE FIX: .lower() forces mobile auto-caps to match the database
         user = st.session_state["username"].strip().lower()
         pw = st.session_state["password"].strip()
         
@@ -255,20 +253,17 @@ def run_admin_dashboard():
             with cols[idx]:
                 st.markdown(f"#### 🧑🏾‍💻 Node: `{student}`")
                 
-                # Show Practice Status
                 status = "✅ Unlocked" if data["has_completed_practice"] else "🔒 Locked"
                 st.write(f"**Exam Status:** {status}")
                 
                 st.metric("Engagement Time", f"{total_hrs:.2f} Hours")
                 st.metric("Live Practice Progress", data["current_score"])
                 
-                # Show Timed Exam Score
                 latest_timed = data["timed_scores"][-1] if data["timed_scores"] else "Not Taken"
                 st.metric("Best Timed Exam Score", latest_timed)
                 
                 st.write("**Identified Knowledge Gaps:**")
                 if data["weak_topics"]:
-                    # Show only last 5 to keep dashboard clean
                     for topic in list(set(data["weak_topics"]))[-5:]: 
                         st.error(f"⚠️ {topic}")
                 else: 
@@ -305,7 +300,6 @@ def run_student_simulator(vs, llm):
         'wrong_count', 'streak', 'difficulty', 'current_q', 'phase', 
         'feedback', 'user_choice', 'is_right', 'rehab_topic', 
         'pbq_feedback', 'current_pbq_id',
-        # Timed Exam Keys
         'te_active', 'te_start_time', 'te_idx', 'te_correct', 'te_wrong_topics', 'te_pbqs', 'te_phase'
     ]
     
@@ -330,7 +324,6 @@ def run_student_simulator(vs, llm):
         st.session_state.pbq_feedback = ""
         st.session_state.current_pbq_id = None
         
-        # Timed Exam Init
         st.session_state.te_active = False
         st.session_state.te_start_time = 0
         st.session_state.te_idx = 1
@@ -465,7 +458,7 @@ def run_student_simulator(vs, llm):
             st.success(f"🎉 Practice Exam Finished! Final Score: {st.session_state.correct_count} / 90")
             if st.button("Log Score, Unlock Real Exam, & Restart"):
                 log_event(user, "Practice Completed", f"Score: {st.session_state.correct_count}/90")
-                mark_practice_complete(user) # UNLOCKS THE TIMED EXAM
+                mark_practice_complete(user)
                 st.session_state.clear()
                 st.rerun()
             return
@@ -475,7 +468,6 @@ def run_student_simulator(vs, llm):
                 while st.session_state.db_idx < len(st.session_state.all_docs):
                     time.sleep(1.2)
                     raw_content = st.session_state.all_docs[st.session_state.db_idx].page_content
-                    # PASS WEAKNESSES TO PROMPT
                     formatted = get_adaptive_question(llm, raw_content, st.session_state.difficulty, user_weaknesses)
                     if "SKIP" not in formatted and "QUESTION:" in formatted:
                         try:
@@ -501,189 +493,4 @@ def run_student_simulator(vs, llm):
         
         if st.session_state.phase == "answering":
             st.info(cq["text"])
-            selected_option = st.radio("Select your defensive response:", cq["options"], index=None)
-
-            if st.button("Submit Response"):
-                if selected_option is None: st.warning("⚠️ Please select an answer.")
-                else:
-                    user_letter = selected_option.split(":")[0].strip()
-                    is_right = (user_letter == cq["correct_letter"])
-                    
-                    if is_right:
-                        st.session_state.correct_count += 1
-                        st.session_state.streak = st.session_state.streak + 1 if st.session_state.streak > 0 else 1
-                    else:
-                        st.session_state.wrong_count += 1
-                        st.session_state.streak = st.session_state.streak - 1 if st.session_state.streak < 0 else -1
-                    
-                    st.session_state.user_choice = selected_option
-                    st.session_state.is_right = is_right
-                    
-                    update_live_score(user, st.session_state.correct_count, st.session_state.display_idx)
-                    
-                    with st.spinner("AI Tutor is analyzing your response..."):
-                        st.session_state.feedback = get_tutor_feedback(llm, cq["text"], selected_option, cq["correct_letter"], is_right, st.session_state.difficulty)
-                    st.session_state.phase = "reviewing"
-                    st.rerun()
-
-        elif st.session_state.phase == "reviewing":
-            st.info(cq["text"])
-            st.radio("Your response:", cq["options"], index=cq["options"].index(st.session_state.user_choice), disabled=True)
-            st.markdown("---")
-            if st.session_state.is_right: st.success(f"✅ Correct! The answer is {cq['correct_letter']}.")
-            else: st.error(f"❌ Incorrect. The correct answer was {cq['correct_letter']}.")
-            
-            st.warning("🤖 **System AI Analysis:**")
-            st.write(st.session_state.feedback)
-            st.markdown("<br>", unsafe_allow_html=True)
-            
-            if st.button("Next Objective ➡️"):
-                if st.session_state.streak <= -3:
-                    with st.spinner("Preparing required study timeout..."):
-                        topic = get_video_topic(llm, cq["text"])
-                        st.session_state.rehab_topic = topic
-                        log_event(user, "Timeout Triggered", "Failed 3 in a row", topic)
-                        
-                    st.session_state.phase = "video_rehab"
-                    st.rerun()
-                else:
-                    st.session_state.db_idx += 1        
-                    st.session_state.display_idx += 1   
-                    st.session_state.current_q = None   
-                    st.session_state.phase = "answering"
-                    st.rerun()
-
-        elif st.session_state.phase == "video_rehab":
-            st.error("🛑 Study Timeout Triggered: You've missed 3 questions in a row.")
-            st.subheader(f"📚 Recommended Review Topic: **{st.session_state.rehab_topic}**")
-            
-            query = urllib.parse.quote(f"Professor Messer SY0-701 {st.session_state.rehab_topic}")
-            st.markdown(f"### 📺 [Click Here to Search YouTube for '{st.session_state.rehab_topic}' Lessons](https://www.youtube.com/results?search_query={query})")
-            
-            user_done = st.text_input("Type **done** when you have finished reviewing:")
-            if user_done.strip().lower() == "done":
-                st.success("Great job reviewing! Let's get back into the module.")
-                if st.button("Resume Module ➡️"):
-                    log_event(user, "Completed Rehab", f"Reviewed {st.session_state.rehab_topic}")
-                    st.session_state.streak = 0
-                    st.session_state.db_idx += 1        
-                    st.session_state.display_idx += 1   
-                    st.session_state.current_q = None   
-                    st.session_state.phase = "answering"
-                    st.rerun()
-
-    # ==========================================
-    # MODE 3: TIMED CERTIFICATION EXAM
-    # ==========================================
-    elif st.session_state.app_mode == "Timed Certification Exam":
-        if not has_completed_practice:
-            st.error("🔒 **EXAM LOCKED**")
-            st.warning("You must complete all 90 questions in the Adaptive Simulator at least once to unlock the real certification exam simulator.")
-            return
-
-        if not st.session_state.te_active:
-            st.write("### 🚨 Official Certification Simulator")
-            st.write("**Rules:**")
-            st.write("- **90 Minutes** total time limit.")
-            st.write("- **90 Questions** (87 Multiple Choice, 3 PBQs at the end).")
-            st.write("- **No Feedback** until the exam is submitted.")
-            st.write("- If you fail, the AI will document your weak topics and force you to practice them in the Adaptive Simulator.")
-            
-            if st.button("🚀 Start Timed Exam Now"):
-                st.session_state.te_active = True
-                st.session_state.te_start_time = time.time()
-                st.session_state.te_idx = 1
-                st.session_state.te_correct = 0
-                st.session_state.te_wrong_topics = []
-                st.session_state.te_pbqs = random.sample(list(PBQ_DB.keys()), 3) # Pick 3 random PBQs
-                st.session_state.te_current_q = None
-                st.session_state.te_phase = "answering"
-                log_event(user, "Started Timed Exam", "90 Minute timer initiated.")
-                st.rerun()
-        else:
-            # Timer Logic
-            elapsed = time.time() - st.session_state.te_start_time
-            remaining = max(0, 5400 - elapsed) # 90 minutes = 5400 seconds
-            mins, secs = divmod(int(remaining), 60)
-            
-            col1, col2 = st.columns([3, 1])
-            with col1: st.progress(st.session_state.te_idx / 90.0)
-            with col2: st.error(f"⏱️ Time Remaining: **{mins:02d}:{secs:02d}**")
-            
-            if remaining <= 0:
-                st.error("⏰ Time's Up! Auto-submitting exam.")
-                st.session_state.te_idx = 91 # Force end exam
-                time.sleep(2)
-                st.rerun()
-
-            # --- EXAM LOGIC: MCQs (Questions 1 - 87) ---
-            if st.session_state.te_idx <= 87:
-                st.write(f"**Question {st.session_state.te_idx} of 90 (Multiple Choice)**")
-                
-                if st.session_state.te_current_q is None:
-                    with st.spinner("Loading next objective..."):
-                        while st.session_state.db_idx < len(st.session_state.all_docs):
-                            raw_content = st.session_state.all_docs[st.session_state.db_idx].page_content
-                            formatted = get_adaptive_question(llm, raw_content, "NORMAL", "")
-                            if "SKIP" not in formatted and "QUESTION:" in formatted:
-                                try:
-                                    q_text = formatted.split("QUESTION:")[1].split("A:")[0].strip()
-                                    a_opt = formatted.split("A:")[1].split("B:")[0].strip()
-                                    b_opt = formatted.split("B:")[1].split("C:")[0].strip()
-                                    c_opt = formatted.split("C:")[1].split("D:")[0].strip()
-                                    d_opt = formatted.split("D:")[1].split("CORRECT:")[0].strip()
-                                    correct_letter = formatted.split("CORRECT:")[1].strip()[0].upper()
-                                    
-                                    st.session_state.te_current_q = {
-                                        "text": q_text, "options": [f"A: {a_opt}", f"B: {b_opt}", f"C: {c_opt}", f"D: {d_opt}"], "correct_letter": correct_letter
-                                    }
-                                    break 
-                                except Exception: st.session_state.db_idx += 1 
-                            else: st.session_state.db_idx += 1 
-                
-                if st.session_state.te_current_q is None:
-                    st.error("Exam database exhausted. Please restart.")
-                    return
-
-                cq = st.session_state.te_current_q
-                st.info(cq["text"])
-                selected_option = st.radio("Select your response:", cq["options"], index=None, key=f"te_radio_{st.session_state.te_idx}")
-                
-                if st.button("Submit & Continue ➡️"):
-                    if selected_option is None: st.warning("⚠️ You must select an answer to proceed.")
-                    else:
-                        user_letter = selected_option.split(":")[0].strip()
-                        if user_letter == cq["correct_letter"]:
-                            st.session_state.te_correct += 1
-                        else:
-                            # Secretly extract topic for AI weaknesses
-                            with st.spinner("Saving..."):
-                                topic = get_video_topic(llm, cq["text"])
-                                st.session_state.te_wrong_topics.append(topic)
-                        
-                        st.session_state.te_idx += 1
-                        st.session_state.db_idx += 1
-                        st.session_state.te_current_q = None
-                        st.rerun()
-
-            # --- EXAM LOGIC: PBQs (Questions 88 - 90) ---
-            elif st.session_state.te_idx <= 90:
-                pbq_number = st.session_state.te_idx - 87
-                st.write(f"**Question {st.session_state.te_idx} of 90 (Performance-Based Question {pbq_number}/3)**")
-                
-                current_pbq_id = st.session_state.te_pbqs[pbq_number - 1]
-                pbq = PBQ_DB[current_pbq_id]
-                
-                st.info(f"**Scenario:** {pbq['desc']}")
-                
-                user_submission = {}
-                with st.form(f"te_pbq_form_{st.session_state.te_idx}"):
-                    if pbq['type'] in ["match", "order", "log"]:
-                        if 'log' in pbq: st.code(pbq['log'], language='bash')
-                        if 'options' in pbq:
-                            st.write("### 🗂️ Word Bank")
-                            st.info(" | ".join(pbq['options']))
-                            st.write("---")
-                        if 'keys' in pbq:
-                            col1, col2 = st.columns(2)
-                            for i, key in enumerate(pbq['
+            selected_
