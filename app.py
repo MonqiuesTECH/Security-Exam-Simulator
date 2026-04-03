@@ -87,12 +87,20 @@ def render_footer():
     st.markdown("---")
     st.markdown("<p style='text-align: center; color: grey;'>Created and Powered By Monique Bruce</p>", unsafe_allow_html=True)
 
+def render_login_header():
+    image_name = "logo.jpeg"
+    if os.path.exists(image_name):
+        st.image(image_name, use_container_width=True)
+    
+    st.title("🛡️ Cyber Punk University")
+    st.subheader("Secure Access Portal")
+
 def check_password():
     def password_entered():
         user = st.session_state["username"].strip().lower()
         pw = st.session_state["password"].strip()
         
-        if user in st.secrets.get("passwords", {}) and pw == st.secrets["passwords"].get(user):
+        if user in st.secrets["passwords"] and pw == st.secrets["passwords"][user]:
             st.session_state["password_correct"] = True
             st.session_state["current_user"] = user
             del st.session_state["password"]
@@ -130,28 +138,34 @@ def check_password():
     return True
 
 # ==========================================
-# RESOURCE LOADING (WITH DIAGNOSTICS)
+# RESOURCE & AI LOGIC (WITH ANTI-CRASH SHOCK ABSORBERS)
 # ==========================================
-# Added a visible spinner so you know it hasn't frozen!
-@st.cache_resource(show_spinner="Downloading AI Models & Database (This may take 1-2 minutes on the first boot...)")
+@st.cache_resource
 def load_resources():
     api_key = st.secrets.get("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
     if not api_key:
         st.error("🔑 GROQ_API_KEY is missing in Streamlit Secrets!")
-        return None, None
-        
-    if not os.path.exists("faiss_index"):
-        st.error("📁 Error: Could not find the 'faiss_index' folder in your GitHub repository!")
-        return None, None
-
+        st.stop()
     try:
         embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
         vectorstore = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
         llm = ChatGroq(temperature=0, model_name="llama-3.3-70b-versatile", groq_api_key=api_key)
         return vectorstore, llm
     except Exception as e:
-        st.error(f"⚠️ Critical AI Initialization Error: {e}")
+        st.error(f"Critical Initialization Error: {e}")
         return None, None
+
+def safe_invoke(chain, params, max_retries=4):
+    """Shock Absorber: Prevents RateLimitErrors from crashing the app by pausing and retrying silently."""
+    for attempt in range(max_retries):
+        try:
+            return chain.invoke(params)
+        except Exception as e:
+            if "RateLimit" in str(type(e).__name__) or "429" in str(e):
+                time.sleep(7)  # Sleep 7 seconds to let Groq servers cool down
+            else:
+                return "SKIP"
+    return "SKIP"
 
 def get_adaptive_question(llm, raw_text, diff, weaknesses=""):
     template = """
@@ -172,7 +186,7 @@ def get_adaptive_question(llm, raw_text, diff, weaknesses=""):
     """
     prompt = PromptTemplate.from_template(template)
     chain = prompt | llm | StrOutputParser()
-    return chain.invoke({"raw_text": raw_text[:1200], "difficulty": diff, "weaknesses": weaknesses})
+    return safe_invoke(chain, {"raw_text": raw_text[:1200], "difficulty": diff, "weaknesses": weaknesses})
 
 def get_tutor_feedback(llm, question, user_ans, correct_letter, is_right, diff):
     result_text = "Correct" if is_right else "Incorrect"
@@ -187,13 +201,15 @@ def get_tutor_feedback(llm, question, user_ans, correct_letter, is_right, diff):
     """
     prompt = PromptTemplate.from_template(template)
     chain = prompt | llm | StrOutputParser()
-    return chain.invoke({"question": question, "user_ans": user_ans, "correct_letter": correct_letter, "result": result_text, "difficulty": diff})
+    res = safe_invoke(chain, {"question": question, "user_ans": user_ans, "correct_letter": correct_letter, "result": result_text, "difficulty": diff})
+    return res if res != "SKIP" else "System API Limit Reached: Unable to generate detailed explanation at this time. The correct answer is displayed above."
 
 def get_video_topic(llm, question):
     template = "Analyze this Security+ question and extract the ONE core concept in 2 to 4 words. Question: {question}\nOutput ONLY the short topic name."
     prompt = PromptTemplate.from_template(template)
     chain = prompt | llm | StrOutputParser()
-    return chain.invoke({"question": question})
+    res = safe_invoke(chain, {"question": question})
+    return res if res != "SKIP" else "Security+ Concepts"
 
 def grade_pbq(llm, pbq_title, pbq_scenario, user_answers):
     template = """
@@ -211,7 +227,8 @@ def grade_pbq(llm, pbq_title, pbq_scenario, user_answers):
     """
     prompt = PromptTemplate.from_template(template)
     chain = prompt | llm | StrOutputParser()
-    return chain.invoke({"title": pbq_title, "scenario": pbq_scenario, "answers": str(user_answers)})
+    res = safe_invoke(chain, {"title": pbq_title, "scenario": pbq_scenario, "answers": str(user_answers)})
+    return res if res != "SKIP" else "[FAILED] System API Limit Reached: Unable to grade PBQ."
 
 # ==========================================
 # PBQ DATABASE
@@ -458,7 +475,7 @@ def run_student_simulator(vs, llm):
         if st.session_state.current_q is None:
             with st.spinner("System is finding your next objective (Analyzing Weaknesses)..."):
                 while st.session_state.db_idx < len(st.session_state.all_docs):
-                    time.sleep(1.2)
+                    time.sleep(1.5) # Increased sleep slightly to prevent rapid firing
                     raw_content = st.session_state.all_docs[st.session_state.db_idx].page_content
                     formatted = get_adaptive_question(llm, raw_content, st.session_state.difficulty, user_weaknesses)
                     if "SKIP" not in formatted and "QUESTION:" in formatted:
@@ -602,6 +619,7 @@ def run_student_simulator(vs, llm):
                 if st.session_state.te_current_q is None:
                     with st.spinner("Loading next objective..."):
                         while st.session_state.db_idx < len(st.session_state.all_docs):
+                            time.sleep(1.5)
                             raw_content = st.session_state.all_docs[st.session_state.db_idx].page_content
                             formatted = get_adaptive_question(llm, raw_content, "NORMAL", "")
                             if "SKIP" not in formatted and "QUESTION:" in formatted:
@@ -734,7 +752,6 @@ if check_password():
     if st.session_state["current_user"] == "admin":
         run_admin_dashboard()
     else:
-        # HERE IS THE SAFETY NET FOR A BLANK PAGE!
         vs, llm = load_resources()
         if vs is not None and llm is not None: 
             run_student_simulator(vs, llm)
