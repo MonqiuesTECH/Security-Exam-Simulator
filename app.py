@@ -125,7 +125,7 @@ def main():
         st.session_state.difficulty = "NORMAL"
         
         st.session_state.current_q = None   
-        st.session_state.phase = "answering" # answering, reviewing, or video_rehab
+        st.session_state.phase = "answering" 
         st.session_state.feedback = ""
         st.session_state.user_choice = None
         st.session_state.is_right = False
@@ -134,12 +134,12 @@ def main():
     # --- ADAPTIVE DIFFICULTY LOGIC ---
     if st.session_state.streak >= 3:
         st.session_state.difficulty = "HARD"
-    elif st.session_state.streak <= -3: # Using -3 for difficulty, -5 triggers the video timeout
+    elif st.session_state.streak <= -2: # Switches to EASY after 2 wrong to try and save them
         st.session_state.difficulty = "EASY"
     else:
         st.session_state.difficulty = "NORMAL"
 
-    # --- SIDEBAR SCOREBOARD ---
+    # --- SIDEBAR SCOREBOARD & QUICK LINKS ---
     with st.sidebar:
         st.header("📊 Exam Progress")
         st.write(f"**Question:** {st.session_state.display_idx} / 90")
@@ -147,6 +147,21 @@ def main():
         st.markdown("---")
         st.success(f"✅ Correct: {st.session_state.correct_count}")
         st.error(f"❌ Wrong: {st.session_state.wrong_count}")
+        
+        st.markdown("---")
+        st.header("📺 Quick Review Topics")
+        st.write("Watch Professor Messer lessons anytime:")
+        # Core SY0-701 Domains
+        topics = [
+            "1.0 General Security Concepts",
+            "2.0 Threats, Vulnerabilities, & Mitigations",
+            "3.0 Security Architecture",
+            "4.0 Security Operations",
+            "5.0 Security Program Management"
+        ]
+        for topic in topics:
+            search_query = urllib.parse.quote(f"Professor Messer SY0-701 {topic}")
+            st.markdown(f"- [{topic}](https://www.youtube.com/results?search_query={search_query})")
         
         st.markdown("---")
         if st.button("🔄 Restart Exam"):
@@ -247,8 +262,8 @@ def main():
         st.markdown("<br>", unsafe_allow_html=True)
         
         if st.button("Next Question ➡️"):
-            # CHECK FOR VIDEO TIMEOUT (5 Wrong in a row)
-            if st.session_state.streak <= -5:
+            # CHECK FOR VIDEO TIMEOUT (3 Wrong in a row)
+            if st.session_state.streak <= -3:
                 with st.spinner("Preparing your study timeout..."):
                     st.session_state.rehab_topic = get_video_topic(llm, cq["text"])
                 st.session_state.phase = "video_rehab"
@@ -262,8 +277,8 @@ def main():
 
     # PHASE 3: VIDEO REHAB TIMEOUT
     elif st.session_state.phase == "video_rehab":
-        st.error("🛑 Study Timeout Triggered: You've missed 5 questions in a row.")
-        st.write("When we guess, we stop learning. Let's rebuild your foundation before moving forward.")
+        st.error("🛑 Study Timeout Triggered: You've missed 3 questions in a row.")
+        st.write("When we guess, we stop learning. Let's review this concept before moving forward.")
         
         st.markdown("---")
         st.subheader(f"📚 Recommended Review Topic: **{st.session_state.rehab_topic}**")
