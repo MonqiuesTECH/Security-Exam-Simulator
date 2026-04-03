@@ -138,7 +138,7 @@ def check_password():
     return True
 
 # ==========================================
-# RESOURCE & AI LOGIC (WITH ANTI-CRASH SHOCK ABSORBERS)
+# RESOURCE & AI LOGIC
 # ==========================================
 @st.cache_resource
 def load_resources():
@@ -155,34 +155,37 @@ def load_resources():
         st.error(f"Critical Initialization Error: {e}")
         return None, None
 
-def safe_invoke(chain, params, max_retries=4):
-    """Shock Absorber: Prevents RateLimitErrors from crashing the app by pausing and retrying silently."""
+def safe_invoke(chain, params, max_retries=3):
     for attempt in range(max_retries):
         try:
             return chain.invoke(params)
         except Exception as e:
             if "RateLimit" in str(type(e).__name__) or "429" in str(e):
-                time.sleep(7)  # Sleep 7 seconds to let Groq servers cool down
+                time.sleep(5)  
             else:
-                return "SKIP"
-    return "SKIP"
+                return ""
+    return ""
 
 def get_adaptive_question(llm, raw_text, diff, weaknesses=""):
+    # UPDATE: Forcing the AI to build a question so it never returns "SKIP"
     template = """
-    Extract ONE CompTIA Security+ question EXACTLY as written. 
+    You are an expert Cybersecurity Exam writer.
+    Read the following RAW TEXT and GENERATE ONE multiple-choice question based on it.
+    
     DIFFICULTY TARGET: {difficulty}
     KNOWN STUDENT WEAKNESSES: {weaknesses}
-    (If the RAW TEXT relates to these weaknesses, heavily prioritize generating a question about it).
-    If the text is a disclaimer or doesn't match, return: SKIP.
+    (If possible, incorporate the weaknesses into the concept).
+    
     RAW TEXT: {raw_text}
-    FORMAT:
-    QUESTION: [text]
-    A: [text]
-    B: [text]
-    C: [text]
-    D: [text]
+    
+    CRITICAL INSTRUCTION: You MUST generate a question. Do NOT return SKIP or any introductory text.
+    Use EXACTLY this formatting, with no asterisks or markdown:
+    QUESTION: [Your generated question here]
+    A: [Option A]
+    B: [Option B]
+    C: [Option C]
+    D: [Option D]
     CORRECT: [A, B, C, or D]
-    CRITICAL INSTRUCTION: Stop generating text immediately after providing the single CORRECT letter.
     """
     prompt = PromptTemplate.from_template(template)
     chain = prompt | llm | StrOutputParser()
@@ -202,14 +205,14 @@ def get_tutor_feedback(llm, question, user_ans, correct_letter, is_right, diff):
     prompt = PromptTemplate.from_template(template)
     chain = prompt | llm | StrOutputParser()
     res = safe_invoke(chain, {"question": question, "user_ans": user_ans, "correct_letter": correct_letter, "result": result_text, "difficulty": diff})
-    return res if res != "SKIP" else "System API Limit Reached: Unable to generate detailed explanation at this time. The correct answer is displayed above."
+    return res if res else "System API Limit Reached: Unable to generate detailed explanation at this time."
 
 def get_video_topic(llm, question):
     template = "Analyze this Security+ question and extract the ONE core concept in 2 to 4 words. Question: {question}\nOutput ONLY the short topic name."
     prompt = PromptTemplate.from_template(template)
     chain = prompt | llm | StrOutputParser()
     res = safe_invoke(chain, {"question": question})
-    return res if res != "SKIP" else "Security+ Concepts"
+    return res if res else "Security+ Concepts"
 
 def grade_pbq(llm, pbq_title, pbq_scenario, user_answers):
     template = """
@@ -228,7 +231,7 @@ def grade_pbq(llm, pbq_title, pbq_scenario, user_answers):
     prompt = PromptTemplate.from_template(template)
     chain = prompt | llm | StrOutputParser()
     res = safe_invoke(chain, {"title": pbq_title, "scenario": pbq_scenario, "answers": str(user_answers)})
-    return res if res != "SKIP" else "[FAILED] System API Limit Reached: Unable to grade PBQ."
+    return res if res else "[FAILED] System API Limit Reached: Unable to grade PBQ."
 
 # ==========================================
 # PBQ DATABASE
@@ -475,23 +478,26 @@ def run_student_simulator(vs, llm):
         if st.session_state.current_q is None:
             with st.spinner("System is finding your next objective (Analyzing Weaknesses)..."):
                 while st.session_state.db_idx < len(st.session_state.all_docs):
-                    time.sleep(1.5) # Increased sleep slightly to prevent rapid firing
                     raw_content = st.session_state.all_docs[st.session_state.db_idx].page_content
                     formatted = get_adaptive_question(llm, raw_content, st.session_state.difficulty, user_weaknesses)
-                    if "SKIP" not in formatted and "QUESTION:" in formatted:
+                    
+                    if "QUESTION:" in formatted and "A:" in formatted and "CORRECT:" in formatted:
                         try:
-                            q_text = formatted.split("QUESTION:")[1].split("A:")[0].strip()
-                            a_opt = formatted.split("A:")[1].split("B:")[0].strip()
-                            b_opt = formatted.split("B:")[1].split("C:")[0].strip()
-                            c_opt = formatted.split("C:")[1].split("D:")[0].strip()
-                            d_opt = formatted.split("D:")[1].split("CORRECT:")[0].strip()
-                            correct_letter = formatted.split("CORRECT:")[1].strip()[0].upper()
+                            # Bulletproof string parsing!
+                            cleaned = formatted.replace("**", "")
+                            q_text = cleaned.split("QUESTION:")[1].split("A:")[0].strip()
+                            a_opt = cleaned.split("A:")[1].split("B:")[0].strip()
+                            b_opt = cleaned.split("B:")[1].split("C:")[0].strip()
+                            c_opt = cleaned.split("C:")[1].split("D:")[0].strip()
+                            d_opt = cleaned.split("D:")[1].split("CORRECT:")[0].strip()
+                            correct_letter = cleaned.split("CORRECT:")[1].strip()[0].upper()
                             
                             st.session_state.current_q = {
                                 "text": q_text, "options": [f"A: {a_opt}", f"B: {b_opt}", f"C: {c_opt}", f"D: {d_opt}"], "correct_letter": correct_letter
                             }
                             break 
-                        except Exception: st.session_state.db_idx += 1 
+                        except Exception: 
+                            st.session_state.db_idx += 1 
                     else: st.session_state.db_idx += 1 
 
         if st.session_state.current_q is None:
@@ -619,143 +625,4 @@ def run_student_simulator(vs, llm):
                 if st.session_state.te_current_q is None:
                     with st.spinner("Loading next objective..."):
                         while st.session_state.db_idx < len(st.session_state.all_docs):
-                            time.sleep(1.5)
-                            raw_content = st.session_state.all_docs[st.session_state.db_idx].page_content
-                            formatted = get_adaptive_question(llm, raw_content, "NORMAL", "")
-                            if "SKIP" not in formatted and "QUESTION:" in formatted:
-                                try:
-                                    q_text = formatted.split("QUESTION:")[1].split("A:")[0].strip()
-                                    a_opt = formatted.split("A:")[1].split("B:")[0].strip()
-                                    b_opt = formatted.split("B:")[1].split("C:")[0].strip()
-                                    c_opt = formatted.split("C:")[1].split("D:")[0].strip()
-                                    d_opt = formatted.split("D:")[1].split("CORRECT:")[0].strip()
-                                    correct_letter = formatted.split("CORRECT:")[1].strip()[0].upper()
-                                    
-                                    st.session_state.te_current_q = {
-                                        "text": q_text, "options": [f"A: {a_opt}", f"B: {b_opt}", f"C: {c_opt}", f"D: {d_opt}"], "correct_letter": correct_letter
-                                    }
-                                    break 
-                                except Exception: st.session_state.db_idx += 1 
-                            else: st.session_state.db_idx += 1 
-                
-                if st.session_state.te_current_q is None:
-                    st.error("Exam database exhausted. Please restart.")
-                    return
-
-                cq = st.session_state.te_current_q
-                st.info(cq["text"])
-                selected_option = st.radio("Select your response:", cq["options"], index=None, key=f"te_radio_{st.session_state.te_idx}")
-                
-                if st.button("Submit & Continue ➡️"):
-                    if selected_option is None: st.warning("⚠️ You must select an answer to proceed.")
-                    else:
-                        user_letter = selected_option.split(":")[0].strip()
-                        if user_letter == cq["correct_letter"]:
-                            st.session_state.te_correct += 1
-                        else:
-                            with st.spinner("Saving..."):
-                                topic = get_video_topic(llm, cq["text"])
-                                st.session_state.te_wrong_topics.append(topic)
-                        
-                        st.session_state.te_idx += 1
-                        st.session_state.db_idx += 1
-                        st.session_state.te_current_q = None
-                        st.rerun()
-
-            elif st.session_state.te_idx <= 90:
-                pbq_number = st.session_state.te_idx - 87
-                st.write(f"**Question {st.session_state.te_idx} of 90 (Performance-Based Question {pbq_number}/3)**")
-                
-                current_pbq_id = st.session_state.te_pbqs[pbq_number - 1]
-                pbq = PBQ_DB[current_pbq_id]
-                
-                st.info(f"**Scenario:** {pbq['desc']}")
-                
-                user_submission = {}
-                with st.form(f"te_pbq_form_{st.session_state.te_idx}"):
-                    if pbq['type'] in ["match", "order", "log"]:
-                        if 'log' in pbq: st.code(pbq['log'], language='bash')
-                        if 'options' in pbq:
-                            st.write("### 🗂️ Word Bank")
-                            st.info(" | ".join(pbq['options']))
-                            st.write("---")
-                        if 'keys' in pbq:
-                            col1, col2 = st.columns(2)
-                            for i, key in enumerate(pbq['keys']):
-                                with (col1 if i % 2 == 0 else col2):
-                                    user_submission[key] = st.selectbox(f"{key}:", ["-- Select --"] + pbq['options'])
-                        else:
-                            if 'options' in pbq:
-                                user_submission['Answer'] = st.selectbox("Select the correct finding:", ["-- Select --"] + pbq['options'])
-                    elif pbq['type'] == "firewall":
-                        c1, c2, c3, c4 = st.columns(4)
-                        user_submission['Action'] = c1.selectbox("Action", ["-- Select --", "ALLOW", "DENY"])
-                        user_submission['Protocol'] = c2.selectbox("Protocol", ["-- Select --", "TCP", "UDP", "HTTP", "ANY"])
-                        user_submission['Source IP'] = c3.text_input("Source IP")
-                        user_submission['Dest Port'] = c4.selectbox("Dest Port", ["-- Select --", "22", "53", "80", "443", "ANY"])
-
-                    submit_pbq = st.form_submit_button("Submit PBQ & Continue ➡️")
-                
-                if submit_pbq:
-                    if any(val == "-- Select --" or val == "" for val in user_submission.values()):
-                        st.error("⚠️ Please configure all fields before submitting.")
-                    else:
-                        with st.spinner("Recording configuration..."):
-                            feedback = grade_pbq(llm, pbq['title'], pbq['desc'], user_submission)
-                            if "[PASSED]" in feedback:
-                                st.session_state.te_correct += 1
-                            else:
-                                st.session_state.te_wrong_topics.append(pbq['topic'])
-                                
-                        st.session_state.te_idx += 1
-                        st.rerun()
-
-            else:
-                score_str = f"{st.session_state.te_correct} / 90"
-                passing_score = 75 
-                passed = st.session_state.te_correct >= passing_score
-                
-                st.balloons() if passed else None
-                st.markdown("## 🏁 Exam Completed")
-                st.metric("Final Score", score_str)
-                
-                if passed:
-                    st.success("🎉 **PASS!** You have met the requirements for certification. You are ready for the real exam!")
-                    log_event(user, "Passed Timed Exam", f"Score: {score_str}")
-                else:
-                    st.error("🛑 **FAIL.** You did not meet the 75/90 threshold. The AI has documented your weaknesses.")
-                    log_event(user, "Failed Timed Exam", f"Score: {score_str}")
-                    st.write("### AI Knowledge Gap Analysis:")
-                    st.write("The system has updated your profile. The Adaptive Simulator will now force you to practice the following topics:")
-                    for w in list(set(st.session_state.te_wrong_topics)):
-                        st.warning(f"⚠️ Needs Review: {w}")
-                        log_event(user, "AI Weakness Logged", "From Timed Exam", w)
-                
-                save_timed_score(user, score_str)
-                
-                if st.button("Return to Dashboard"):
-                    st.session_state.te_active = False
-                    st.rerun()
-
-# ==========================================
-# MAIN EXECUTION THREAD
-# ==========================================
-if check_password():
-    with st.sidebar:
-        st.write(f"Authorized User: **{st.session_state['current_user']}**")
-        if st.button("🚪 Terminate Session"):
-            if st.session_state['current_user'] != "admin":
-                log_event(st.session_state['current_user'], "Logout", "Session closed by user.")
-            st.session_state.clear()
-            st.rerun()
-
-    if st.session_state["current_user"] == "admin":
-        run_admin_dashboard()
-    else:
-        vs, llm = load_resources()
-        if vs is not None and llm is not None: 
-            run_student_simulator(vs, llm)
-        else:
-            st.error("⚠️ The App failed to load the AI Models. Please verify your faiss_index and GROQ_API_KEY.")
-            
-    render_footer()
+                            raw_content = st.session
