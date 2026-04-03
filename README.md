@@ -1,75 +1,104 @@
-# 🛡️ Security+ SY0-701 Pro Simulator
+Here is the complete, ready-to-use `README.md` file. I have clearly outlined Steps 1 through 5 so you and your team can simply copy, paste, and follow along without any confusion. 
 
-An AI-powered, interactive exam simulator designed to help candidates study for the CompTIA Security+ (SY0-701) certification. Built with Python, Streamlit, and LangChain, this application uses Retrieval-Augmented Generation (RAG) and Llama 3.3 to act as a real-time, personalized tutor.
+Just copy everything inside the block below and paste it directly into your GitHub `README.md` file!
 
-## ✨ Features
-* **AI Tutor Explanations:** Doesn't just tell you if you are right or wrong; generates real-time, highly readable explanations using Llama 3.3 to explain *why* an answer is correct and why the others are flawed.
-* **Strict Phase Rendering:** Custom Streamlit state-machine logic ensures the UI strictly locks between "Answering" and "Reviewing" phases, preventing accidental skips and ensuring explanations persist on screen.
-* **Dynamic Shuffling:** Automatically scrambles a pool of 150+ database queries on startup so you never memorize the question order.
-* **Free-Tier Optimized:** Includes built-in API rate-limit protections (`time.sleep` buffers) and strict token-truncation to run flawlessly on Groq's free tier.
-* **Live Scoreboard:** Tracks progress, correct answers, and incorrect answers in real-time across a strict 90-question exam format.
+```markdown
+# 🛡️ Cyber Punk University
 
-## 🛠️ Tech Stack
+**Created and Powered By Monique Bruce**
+
+Cyber Punk University is an AI-driven Learning Management System (LMS) and Adaptive Exam Simulator designed specifically for the CompTIA Security+ (SY0-701) certification. Built with Python, Streamlit, and LangChain, it offers an intelligent, adaptive learning environment for students and a comprehensive analytics dashboard for instructors.
+
+---
+
+## ✨ Core Features
+
+### 🧑🏾‍🎓 For Students (Guest Profiles)
+* **Adaptive AI Simulator:** The system dynamically scales difficulty (EASY, NORMAL, HARD) based on your current answer streak.
+* **Performance-Based Questions (PBQs):** Interactive, hands-on labs (drag-and-drop matching, log analysis, firewall configuration) graded instantly by an AI Tutor.
+* **Auto-Save & Silent Tracking:** Study time, live scores, and weak topics are tracked silently in the background. No manual "saving" required.
+* **Study Timeouts:** If a student misses 3 questions in a row, the AI triggers a "Study Timeout," identifies the knowledge gap, and provides targeted review material (Professor Messer video links).
+* **Cross-Platform UI:** Fully responsive design that works flawlessly on desktop, Android, and iOS (includes specific logic to prevent iPhone auto-capitalization login bugs).
+
+### 👨🏾‍🏫 For Instructors (Admin Profile)
+* **Live Telemetry:** Monitor student engagement time, live quiz scores, and recent activity logs in real-time.
+* **Knowledge Gap Analysis:** The AI automatically flags weak topics for each student based on failed PBQs or multiple-choice misses.
+* **Data Management:** Instantly purge a student's history and reset their metrics directly from the UI.
+
+---
+
+## 🛠️ Tech Stack & Architecture
 * **Frontend:** Streamlit
-* **AI/LLM:** Groq API (Llama-3.3-70b-versatile)
-* **Orchestration:** LangChain
+* **LLM Engine:** Groq (`llama-3.3-70b-versatile`)
+* **Vector Database:** FAISS (Local storage for exam questions)
 * **Embeddings:** HuggingFace (`sentence-transformers/all-MiniLM-L6-v2`)
-* **Vector Database:** FAISS (Local)
+* **Data Storage:** Local JSON (`study_logs.json`) for seamless LMS state tracking.
 
-## 🚀 Installation & Setup
+---
 
-1. **Clone the repository:**
-   ```bash
-   git clone [https://github.com/yourusername/security-exam-simulator.git](https://github.com/yourusername/security-exam-simulator.git)
-   cd security-exam-simulator
+## 🚀 Quick Start Guide (Steps 1 - 5)
 
-   Gemini said
-I see exactly what happened! This is a classic coding "gotcha."
+Follow these 5 exact steps to get the application running locally or deploy it to the cloud.
 
-If you look closely at your GitHub file list, the image you uploaded is named logo.jpeg (with an "e"), but in the code, we told it to look for logo.jpg (without the "e").
+### Step 1: Clone the Repository
+Pull the code down to your local machine:
+```bash
+git clone [https://github.com/YOUR_GITHUB_USERNAME/security-exam-simulator.git](https://github.com/YOUR_GITHUB_USERNAME/security-exam-simulator.git)
+cd security-exam-simulator
+```
 
-Computers are incredibly literal, so os.path.exists() saw .jpg and said, "Nope, doesn't exist here!" and safely skipped it.
+### Step 2: Set Up a Virtual Environment
+Create an isolated environment and install the required dependencies:
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows use: venv\Scripts\activate
+pip install -r requirements.txt
+```
 
-How to fix the image:
-In your app.py file, go to Line 90 (inside the render_login_header function) and change the image_name to exactly match your GitHub file:
+### Step 3: Configure Your Secrets 
+Streamlit needs a secrets file to store passwords and API keys securely. 
+1. Create a folder named `.streamlit` in the root directory.
+2. Inside that folder, create a file named `secrets.toml`.
+3. Paste the following configuration into `secrets.toml`:
 
-Change this:
+```toml
+# .streamlit/secrets.toml
 
-Python
-def render_login_header():
-    """Safely loads the image if it exists, prevents crashes if it doesn't."""
-    image_name = "WhatsApp Image 2026-02-07 at 13.58.20.jpg" # Or whatever you had here
-To this:
+# AI API Key (Required for the tutor to work)
+GROQ_API_KEY = "your_groq_api_key_here"
 
-Python
-def render_login_header():
-    """Safely loads the image if it exists, prevents crashes if it doesn't."""
-    image_name = "logo.jpeg"  # Notice the .jpeg extension!
-Save that change to your app.py in GitHub, and your image will instantly appear above the login box!
+# System Credentials
+[passwords]
+admin = "SecPlusMaster2026!"
+guest1 = "StudyBuddy01"
+guest2 = "StudyBuddy02"
+```
+*(Note: Ensure `.streamlit/secrets.toml` is added to your `.gitignore` file so you do not accidentally upload your passwords to GitHub!)*
 
-Your Login Credentials
-Here are the usernames and passwords we set up for your system. (Make sure these exact values are saved in your .streamlit/secrets.toml file):
+### Step 4: Ensure Required Assets Are Uploaded
+For the application to render perfectly, ensure these two assets are in your root folder:
+1. `logo.jpeg` (The main image displayed on the login screen).
+2. `faiss_index/` (The folder containing your vectorized Security+ exam questions).
 
-👨🏾‍🏫 The Instructor / Admin
+### Step 5: Run the Application
+Launch the simulator locally:
+```bash
+streamlit run app.py
+```
 
-Username: admin
+---
 
-Password: SecPlusMaster2026!
+## 🤝 How to Contribute & Build on This
 
-Access: Full dashboard, sees all student hours/scores, can delete user data.
+If you are a developer joining the team, here is how you can extend the platform:
 
-🧑🏾‍🎓 Student Profile 1
+1. **Adding New PBQs:**
+   Open `app.py` and locate the `PBQ_DB` dictionary. You can easily add new PBQ scenarios by following the existing JSON structure. The AI Grader will automatically adapt to new questions without requiring prompt rewrites.
+2. **Updating the Vector Store:**
+   If you want to add new multiple-choice questions, you must update the `faiss_index` using your ingestion script. The main app queries this local vector store to feed raw text to the Groq LLM.
+3. **Database Upgrades:**
+   Currently, the app uses a lightweight `study_logs.json` file for LMS tracking. For large-scale production (100+ concurrent users), consider replacing the `load_db()` and `save_db()` functions in `app.py` with API calls to a robust database like Firebase, Supabase, or PostgreSQL.
 
-Username: guest1
-
-Password: StudyBuddy01
-
-Access: Takes the exam, practices PBQs, time is tracked silently.
-
-🧑🏾‍🎓 Student Profile 2
-
-Username: guest2
-
-Password: StudyBuddy02
-
-Access: Same as Guest 1, tracked entirely separately.
+---
+*Created and Powered By Monique Bruce*
+```
