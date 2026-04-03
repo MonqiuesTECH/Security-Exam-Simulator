@@ -22,3 +22,54 @@ An AI-powered, interactive exam simulator designed to help candidates study for 
    ```bash
    git clone [https://github.com/yourusername/security-exam-simulator.git](https://github.com/yourusername/security-exam-simulator.git)
    cd security-exam-simulator
+
+   Gemini said
+I see exactly what happened! This is a classic coding "gotcha."
+
+If you look closely at your GitHub file list, the image you uploaded is named logo.jpeg (with an "e"), but in the code, we told it to look for logo.jpg (without the "e").
+
+Computers are incredibly literal, so os.path.exists() saw .jpg and said, "Nope, doesn't exist here!" and safely skipped it.
+
+How to fix the image:
+In your app.py file, go to Line 90 (inside the render_login_header function) and change the image_name to exactly match your GitHub file:
+
+Change this:
+
+Python
+def render_login_header():
+    """Safely loads the image if it exists, prevents crashes if it doesn't."""
+    image_name = "WhatsApp Image 2026-02-07 at 13.58.20.jpg" # Or whatever you had here
+To this:
+
+Python
+def render_login_header():
+    """Safely loads the image if it exists, prevents crashes if it doesn't."""
+    image_name = "logo.jpeg"  # Notice the .jpeg extension!
+Save that change to your app.py in GitHub, and your image will instantly appear above the login box!
+
+Your Login Credentials
+Here are the usernames and passwords we set up for your system. (Make sure these exact values are saved in your .streamlit/secrets.toml file):
+
+👨🏾‍🏫 The Instructor / Admin
+
+Username: admin
+
+Password: SecPlusMaster2026!
+
+Access: Full dashboard, sees all student hours/scores, can delete user data.
+
+🧑🏾‍🎓 Student Profile 1
+
+Username: guest1
+
+Password: StudyBuddy01
+
+Access: Takes the exam, practices PBQs, time is tracked silently.
+
+🧑🏾‍🎓 Student Profile 2
+
+Username: guest2
+
+Password: StudyBuddy02
+
+Access: Same as Guest 1, tracked entirely separately.
