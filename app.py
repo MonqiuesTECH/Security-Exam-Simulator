@@ -69,10 +69,12 @@ def render_footer():
     st.markdown("<p style='text-align: center; color: grey;'>Created and Powered By Monique Bruce</p>", unsafe_allow_html=True)
 
 def check_password():
-    """Handles the Cyber Punk University Login UI - Side-by-Side Layout"""
+    """Handles the Cyber Punk University Login UI - Cross-Platform Side-by-Side Layout"""
     def password_entered():
-        user = st.session_state["username"].strip()
+        # THE IPHONE FIX: .lower() forces mobile auto-caps to match the database
+        user = st.session_state["username"].strip().lower()
         pw = st.session_state["password"].strip()
+        
         if user in st.secrets["passwords"] and pw == st.secrets["passwords"][user]:
             st.session_state["password_correct"] = True
             st.session_state["current_user"] = user
@@ -84,19 +86,17 @@ def check_password():
             st.session_state["password_correct"] = False
 
     if "password_correct" not in st.session_state or not st.session_state["password_correct"]:
-        # Add a little top spacing so it sits perfectly in the middle of the screen
         st.markdown("<br><br>", unsafe_allow_html=True)
         
-        # Create a 4-column layout to center the content side-by-side
+        # Responsive Columns: Side-by-Side on Desktop, Auto-Stacking on Mobile
         spacer_left, col_img, col_form, spacer_right = st.columns([1, 2, 2, 1])
         
         with col_img:
-            # The image will now naturally fit inside this half-column without dominating
             image_name = "logo.jpeg"
             if os.path.exists(image_name):
                 st.image(image_name, use_container_width=True)
             else:
-                st.info("Cyber Punk University Logo Placeholder")
+                st.info("Logo Placeholder (Ensure logo.jpeg is in your GitHub Repo)")
 
         with col_form:
             st.title("🛡️ Cyber Punk University")
@@ -105,11 +105,9 @@ def check_password():
             st.text_input("Password", type="password", key="password")
             st.button("Authorize Access", on_click=password_entered, use_container_width=True)
             
-            # Show error message if they typed it wrong
             if "password_correct" in st.session_state and not st.session_state["password_correct"]:
                 st.error("🚫 Access Denied: Invalid Credentials.")
                 
-        # Push the footer to the bottom
         st.markdown("<br><br><br>", unsafe_allow_html=True)
         render_footer()
         return False
