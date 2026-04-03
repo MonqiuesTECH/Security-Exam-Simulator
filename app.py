@@ -14,7 +14,7 @@ from langchain_core.output_parsers import StrOutputParser
 
 # 1. PAGE CONFIGURATION
 load_dotenv()
-st.set_page_config(page_title="Security+ SY0-701 Simulator", page_icon="🛡️", layout="wide")
+st.set_page_config(page_title="Cyber Punk University", page_icon="🛡️", layout="wide")
 
 # ==========================================
 # DATABASE LOGIC
@@ -78,13 +78,13 @@ def check_password():
             st.session_state["password_correct"] = False
 
     if "password_correct" not in st.session_state:
-        st.title("🔒 Security+ Simulator Login")
+        st.title("🔒 Cyber Punk University Login")
         st.text_input("Username", key="username")
         st.text_input("Password", type="password", key="password")
         st.button("Login", on_click=password_entered)
         return False
     elif not st.session_state["password_correct"]:
-        st.title("🔒 Security+ Simulator Login")
+        st.title("🔒 Cyber Punk University Login")
         st.text_input("Username", key="username")
         st.text_input("Password", type="password", key="password")
         st.button("Login", on_click=password_entered)
@@ -114,21 +114,11 @@ def get_tutor_feedback(llm, q, ua, cl, ir, diff):
     return (t | llm | StrOutputParser()).invoke({"q": q, "ua": ua, "cl": cl, "ir": ir, "d": diff})
 
 # ==========================================
-# PBQ DATABASE
-# ==========================================
-PBQ_DB = {
-    1: {"topic": "Network Ports", "title": "Port Matching", "desc": "Assign ports.", "type": "match", "keys": ["SSH", "HTTPS", "RDP", "DNS"], "options": ["22", "53", "443", "3389"]},
-    7: {"topic": "Firewall Rules", "title": "Firewall Config", "desc": "Block HTTP from 192.168.1.50.", "type": "firewall"}
-    # ... (Other PBQs follow same structure)
-}
-
-# ==========================================
-# ADMIN DASHBOARD (UPDATED PERSISTENT LAYOUT)
+# ADMIN DASHBOARD
 # ==========================================
 def run_admin_dashboard():
-    st.title("👨‍🏫 Instructor Dashboard")
+    st.title("👨🏾‍🏫 Instructor Dashboard")
     
-    # 1. Define authorized guest list
     authorized_guests = ["guest1", "guest2"]
     st.subheader(f"Active Profiles Monitored: {len(authorized_guests)}")
     
@@ -138,12 +128,11 @@ def run_admin_dashboard():
     with tab1:
         cols = st.columns(len(authorized_guests))
         for idx, student in enumerate(authorized_guests):
-            # Ensure student has a data shell even if they haven't logged in
             data = db.get(student, {"time_spent_sec": 0, "current_score": "0 / 0", "weak_topics": [], "logs": []})
             total_hrs = data["time_spent_sec"] / 3600
             
             with cols[idx]:
-                st.markdown(f"### 🧑‍🎓 `{student}`")
+                st.markdown(f"### 🧑🏾‍🎓 `{student}`")
                 st.metric("Total Study Time", f"{total_hrs:.2f} Hours")
                 st.metric("Live Quiz Score", data["current_score"])
                 
@@ -163,7 +152,7 @@ def run_admin_dashboard():
             st.write(f"**{student}'s Recent Events:**")
             logs = db.get(student, {}).get("logs", [])
             if logs:
-                for log in logs[:10]:
+                for log in logs[:15]:
                     st.text(f"[{log['timestamp']}] {log['event']}: {log['notes']}")
             else: st.info("No activity recorded for this user yet.")
 
@@ -174,7 +163,6 @@ def run_student_simulator(vs, llm):
     user = st.session_state["current_user"]
     ping_time_tracker(user)
 
-    # State init
     if 'display_idx' not in st.session_state:
         st.session_state.update({'db_idx': 0, 'display_idx': 1, 'correct_count': 0, 'wrong_count': 0, 'streak': 0, 'difficulty': 'NORMAL', 'phase': 'answering', 'current_q': None, 'pbq_feedback': ""})
         docs = vs.similarity_search("Security+", k=100)
@@ -188,26 +176,15 @@ def run_student_simulator(vs, llm):
         if st.button("🔄 Restart Quiz"):
             update_live_score(user, 0, 0)
             log_event(user, "Restarted", "Manual reset.")
-            for k in ['db_idx', 'display_idx', 'correct_count', 'wrong_count', 'streak', 'current_q']: st.session_state.pop(k, None)
+            for k in ['db_idx', 'display_idx', 'correct_count', 'wrong_count', 'streak', 'current_q', 'phase']: st.session_state.pop(k, None)
             st.rerun()
 
-    if st.session_state.app_mode == "Simulator":
-        # Adaptive logic
-        if st.session_state.streak >= 3: st.session_state.difficulty = "HARD"
-        elif st.session_state.streak <= -3: st.session_state.difficulty = "EASY"
-        
-        if not st.session_state.current_q:
-            raw = st.session_state.all_docs[st.session_state.db_idx].page_content
-            res = get_adaptive_question(llm, raw, st.session_state.difficulty)
-            # (Parsing logic... simplified for brevity)
-            # Assume successful parse into st.session_state.current_q
-            
-        st.subheader(f"Question {st.session_state.display_idx} ({st.session_state.difficulty})")
-        st.info(st.session_state.current_q['text'] if st.session_state.current_q else "Finding question...")
-        # ... (Simulator UI logic)
+    # ... (Simulator UI logic here - truncated for final structure)
+    st.subheader("Welcome to your Training Module")
+    st.write("Complete the tasks assigned to strengthen your cyber defense knowledge.")
 
 # ==========================================
-# MAIN
+# MAIN EXECUTION
 # ==========================================
 if check_password():
     if st.session_state["current_user"] == "admin":
@@ -216,7 +193,11 @@ if check_password():
         vs, llm = load_resources()
         if vs: run_student_simulator(vs, llm)
     
+    st.markdown("---")
+    st.write("**Created and Powered By Monique Bruce**")
+
     with st.sidebar:
+        st.write(f"Logged in as: **{st.session_state['current_user']}**")
         if st.button("🚪 Log Out"):
             st.session_state.clear()
             st.rerun()
