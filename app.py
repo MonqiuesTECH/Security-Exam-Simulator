@@ -35,7 +35,7 @@ def save_user_state(user):
     """Saves critical session variables to the JSON database."""
     db = load_db()
     if user in db:
-        state_keys = ['db_idx', 'display_idx', 'correct_count', 'wrong_count', 'streak', 'difficulty', 'app_mode']
+        state_keys = ['db_idx', 'display_idx', 'correct_count', 'wrong_count', 'streak', 'difficulty', 'app_mode', 'phase']
         db[user]["saved_progress"] = {k: st.session_state[k] for k in state_keys if k in st.session_state}
         save_db(db)
 
@@ -324,6 +324,7 @@ def run_student_simulator(vs, llm):
         'te_active', 'te_start_time', 'te_idx', 'te_correct', 'te_wrong_topics', 'te_pbqs', 'te_phase'
     ]
     
+    # CRITICAL FIX: Ensure all keys exist before accessing phase
     if any(key not in st.session_state for key in REQUIRED_KEYS):
         # Attempt to Restore Persistence
         restored = load_user_state(user)
@@ -375,7 +376,7 @@ def run_student_simulator(vs, llm):
             st.error(f"❌ Missed: {st.session_state.wrong_count}")
             
             st.markdown("---")
-            # --- NEW: RESET QUIZ BUTTON ---
+            # RESET QUIZ BUTTON
             if st.button("🔄 Reset Quiz (Start Over)", use_container_width=True):
                 update_live_score(user, 0, 0)
                 log_event(user, "Quiz Reset", "Student initiated full restart.")
