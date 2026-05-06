@@ -316,17 +316,16 @@ def run_student_simulator(vs, llm):
     has_completed_practice = user_data.get("has_completed_practice", False)
     user_weaknesses = ", ".join(list(set(user_data.get("weak_topics", [])))[-5:])
 
+    # FIX 1: Added 'te_current_q' to the REQUIRED_KEYS list
     REQUIRED_KEYS = [
         'app_mode', 'all_docs', 'db_idx', 'display_idx', 'correct_count', 
         'wrong_count', 'streak', 'difficulty', 'current_q', 'phase', 
         'feedback', 'user_choice', 'is_right', 'rehab_topic', 
         'pbq_feedback', 'current_pbq_id',
-        'te_active', 'te_start_time', 'te_idx', 'te_correct', 'te_wrong_topics', 'te_pbqs', 'te_phase'
+        'te_active', 'te_start_time', 'te_idx', 'te_correct', 'te_wrong_topics', 'te_pbqs', 'te_phase', 'te_current_q'
     ]
     
-    # CRITICAL FIX: Ensure all keys exist before accessing phase
     if any(key not in st.session_state for key in REQUIRED_KEYS):
-        # Attempt to Restore Persistence
         restored = load_user_state(user)
         
         if not restored:
@@ -357,6 +356,7 @@ def run_student_simulator(vs, llm):
         st.session_state.te_wrong_topics = []
         st.session_state.te_pbqs = []
         st.session_state.te_phase = "answering"
+        st.session_state.te_current_q = None # FIX 2: Initialize this variable so the exam doesn't crash
         
         st.session_state["password_correct"] = True
         st.session_state["current_user"] = user
@@ -376,7 +376,6 @@ def run_student_simulator(vs, llm):
             st.error(f"❌ Missed: {st.session_state.wrong_count}")
             
             st.markdown("---")
-            # RESET QUIZ BUTTON
             if st.button("🔄 Reset Quiz (Start Over)", use_container_width=True):
                 update_live_score(user, 0, 0)
                 log_event(user, "Quiz Reset", "Student initiated full restart.")
@@ -485,7 +484,14 @@ def run_student_simulator(vs, llm):
                     raw_content = st.session_state.all_docs[st.session_state.db_idx].page_content
                     formatted = get_adaptive_question(llm, raw_content, st.session_state.difficulty, user_weaknesses)
                     try:
-                        cleaned = formatted.replace("```json", "").replace("```", "").strip()
+                        # FIX 3: Smartly extract the JSON even if the AI adds conversational text
+                        start_idx = formatted.find('{')
+                        end_idx = formatted.rfind('}')
+                        if start_idx != -1 and end_idx != -1:
+                            cleaned = formatted[start_idx:end_idx+1]
+                        else:
+                            cleaned = formatted
+                            
                         data = json.loads(cleaned)
                         st.session_state.current_q = {
                             "text": data["question"], 
@@ -493,9 +499,16 @@ def run_student_simulator(vs, llm):
                             "correct_letter": data["correct"].upper()
                         }
                         break 
-                    except: st.session_state.db_idx += 1 
+                    except: 
+                        st.session_state.db_idx += 1 
 
         cq = st.session_state.current_q
+        
+        # FIX 4: Safety Catch. If the AI fails and loop exhausts, prevent a crash.
+        if cq is None:
+            st.error("The AI failed to format the question correctly. Click 'Reset Quiz' to try again.")
+            return
+
         if st.session_state.phase == "answering":
             st.info(cq["text"])
             sel = st.radio("Response:", cq["options"], index=None)
@@ -553,15 +566,32 @@ def run_student_simulator(vs, llm):
             m, s = divmod(int(rem), 60); st.error(f"⏱️ {m:02d}:{s:02d}")
             if st.session_state.te_idx <= 87:
                 if st.session_state.te_current_q is None:
-                    while st.session_state.db_idx < len(st.session_state.all_docs):
-                        raw = st.session_state.all_docs[st.session_state.db_idx].page_content
-                        res = get_adaptive_question(llm, raw, "NORMAL", "")
-                        try:
-                            d = json.loads(res.replace("```json", "").replace("```", "").strip())
-                            st.session_state.te_current_q = {"text": d["question"], "options": [f"A: {d['A']}", f"B: {d['B']}", f"C: {d['C']}", f"D: {d['D']}"], "correct_letter": d["correct"].upper()}
-                            break
-                        except: st.session_state.db_idx += 1
+                    with st.spinner("Synthesizing exam question..."):
+                        while st.session_state.db_idx < len(st.session_state.all_docs):
+                            raw = st.session_state.all_docs[st.session_state.db_idx].page_content
+                            res = get_adaptive_question(llm, raw, "NORMAL", "")
+                            try:
+                                # FIX 5: Timed Exam JSON Slicer
+                                start_idx = res.find('{')
+                                end_idx = res.rfind('}')
+                                if start_idx != -1 and end_idx != -1:
+                                    cleaned = res[start_idx:end_idx+1]
+                                else:
+                                    cleaned = res
+                                    
+                                d = json.loads(cleaned)
+                                st.session_state.te_current_q = {"text": d["question"], "options": [f"A: {d['A']}", f"B: {d['B']}", f"C: {d['C']}", f"D: {d['D']}"], "correct_letter": d["correct"].upper()}
+                                break
+                            except: 
+                                st.session_state.db_idx += 1
+                                
                 cq = st.session_state.te_current_q
+                
+                # FIX 6: Safety Catch for Timed Exam
+                if cq is None:
+                    st.error("The AI failed to format the exam question correctly. Please return.")
+                    return
+                    
                 st.info(cq["text"])
                 ans = st.radio("Pick:", cq["options"], index=None, key=f"te_{st.session_state.te_idx}")
                 if st.button("Continue"):
@@ -569,25 +599,8 @@ def run_student_simulator(vs, llm):
                         if ans.split(":")[0].strip() == cq["correct_letter"]: st.session_state.te_correct += 1
                         st.session_state.te_idx += 1; st.session_state.db_idx += 1; st.session_state.te_current_q = None; st.rerun()
             elif st.session_state.te_idx <= 90:
-                # Basic PBQ loop in exam mode
                 st.write(f"PBQ {st.session_state.te_idx - 87}/3")
                 st.button("Next")
             else:
                 st.metric("Score", f"{st.session_state.te_correct}/90")
                 if st.button("Return"): st.session_state.te_active = False; st.rerun()
-
-# ==========================================
-# MAIN EXECUTION THREAD
-# ==========================================
-if check_password():
-    with st.sidebar:
-        st.write(f"Node: **{st.session_state['current_user']}**")
-        if st.button("🚪 Logout"):
-            save_user_state(st.session_state['current_user'])
-            st.session_state.clear(); st.rerun()
-
-    if st.session_state["current_user"] == "admin": run_admin_dashboard()
-    else:
-        vs, llm = load_resources()
-        if vs and llm: run_student_simulator(vs, llm)
-    render_footer()
