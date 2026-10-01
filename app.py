@@ -604,3 +604,27 @@ def run_student_simulator(vs, llm):
             else:
                 st.metric("Score", f"{st.session_state.te_correct}/90")
                 if st.button("Return"): st.session_state.te_active = False; st.rerun()
+
+# ==========================================
+# MAIN EXECUTION FLOW
+# ==========================================
+def main():
+    # 1. Enforce Authentication Portal First
+    if not check_password():
+        return
+
+    # 2. Load Resources (FAISS & Groq LLM) only after login
+    vectorstore, llm = load_resources()
+    if not vectorstore or not llm:
+        return
+
+    # 3. Route to Admin or Student Simulator based on user
+    user = st.session_state.get("current_user")
+    if user == "admin":
+        run_admin_dashboard()
+    else:
+        ensure_user_exists(user)
+        run_student_simulator(vectorstore, llm)
+
+if __name__ == "__main__":
+    main()
