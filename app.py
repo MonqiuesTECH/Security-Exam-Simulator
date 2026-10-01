@@ -42,7 +42,8 @@ def save_user_state(user):
 def load_user_state(user):
     """Restores saved variables from the JSON database into the session."""
     db = load_db()
-    if user in db and "saved_progress" in db[user]:
+    # Check that saved_progress actually has items inside it before returning True
+    if user in db and "saved_progress" in db[user] and len(db[user]["saved_progress"]) > 0:
         for k, v in db[user]["saved_progress"].items():
             st.session_state[k] = v
         return True
