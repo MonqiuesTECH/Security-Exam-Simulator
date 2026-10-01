@@ -42,7 +42,6 @@ def save_user_state(user):
 def load_user_state(user):
     """Restores saved variables from the JSON database into the session."""
     db = load_db()
-    # Check that saved_progress actually has items inside it before returning True
     if user in db and "saved_progress" in db[user] and len(db[user]["saved_progress"]) > 0:
         for k, v in db[user]["saved_progress"].items():
             st.session_state[k] = v
@@ -160,7 +159,8 @@ def load_resources():
     try:
         embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
         vectorstore = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
-        llm = ChatGroq(temperature=0, model_name="llama-3.1-70b-versatile", groq_api_key=api_key)
+        # Updated to active Groq model
+        llm = ChatGroq(temperature=0, model_name="llama-3.3-70b-versatile", groq_api_key=api_key)
         return vectorstore, llm
     except Exception as e:
         st.error(f"Critical Initialization Error: {e}")
@@ -174,7 +174,6 @@ def safe_invoke(chain, params, max_retries=3):
             if "RateLimit" in str(type(e).__name__) or "429" in str(e):
                 time.sleep(5)  
             else:
-                # Print the actual API error to the screen instead of swallowing it
                 st.error(f"🛑 Groq API Error: {str(e)}")
                 return ""
     return ""
@@ -617,16 +616,13 @@ def run_student_simulator(vs, llm):
 # MAIN EXECUTION FLOW
 # ==========================================
 def main():
-    # 1. Enforce Authentication Portal First
     if not check_password():
         return
 
-    # 2. Load Resources (FAISS & Groq LLM) only after login
     vectorstore, llm = load_resources()
     if not vectorstore or not llm:
         return
 
-    # 3. Route to Admin or Student Simulator based on user
     user = st.session_state.get("current_user")
     if user == "admin":
         run_admin_dashboard()
