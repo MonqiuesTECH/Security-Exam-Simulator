@@ -174,6 +174,8 @@ def safe_invoke(chain, params, max_retries=3):
             if "RateLimit" in str(type(e).__name__) or "429" in str(e):
                 time.sleep(5)  
             else:
+                # Print the actual API error to the screen instead of swallowing it
+                st.error(f"🛑 Groq API Error: {str(e)}")
                 return ""
     return ""
 
@@ -317,7 +319,6 @@ def run_student_simulator(vs, llm):
     has_completed_practice = user_data.get("has_completed_practice", False)
     user_weaknesses = ", ".join(list(set(user_data.get("weak_topics", [])))[-5:])
 
-    # FIX 1: Added 'te_current_q' to the REQUIRED_KEYS list
     REQUIRED_KEYS = [
         'app_mode', 'all_docs', 'db_idx', 'display_idx', 'correct_count', 
         'wrong_count', 'streak', 'difficulty', 'current_q', 'phase', 
@@ -357,7 +358,7 @@ def run_student_simulator(vs, llm):
         st.session_state.te_wrong_topics = []
         st.session_state.te_pbqs = []
         st.session_state.te_phase = "answering"
-        st.session_state.te_current_q = None # FIX 2: Initialize this variable so the exam doesn't crash
+        st.session_state.te_current_q = None 
         
         st.session_state["password_correct"] = True
         st.session_state["current_user"] = user
@@ -484,8 +485,11 @@ def run_student_simulator(vs, llm):
                 while st.session_state.db_idx < len(st.session_state.all_docs):
                     raw_content = st.session_state.all_docs[st.session_state.db_idx].page_content
                     formatted = get_adaptive_question(llm, raw_content, st.session_state.difficulty, user_weaknesses)
+                    
+                    if not formatted:
+                        break
+                        
                     try:
-                        # FIX 3: Smartly extract the JSON even if the AI adds conversational text
                         start_idx = formatted.find('{')
                         end_idx = formatted.rfind('}')
                         if start_idx != -1 and end_idx != -1:
@@ -500,12 +504,12 @@ def run_student_simulator(vs, llm):
                             "correct_letter": data["correct"].upper()
                         }
                         break 
-                    except: 
+                    except Exception as e: 
+                        st.error(f"🛑 JSON Parsing Failed! Raw AI Output: {formatted}")
                         st.session_state.db_idx += 1 
 
         cq = st.session_state.current_q
         
-        # FIX 4: Safety Catch. If the AI fails and loop exhausts, prevent a crash.
         if cq is None:
             st.error("The AI failed to format the question correctly. Click 'Reset Quiz' to try again.")
             return
@@ -571,8 +575,11 @@ def run_student_simulator(vs, llm):
                         while st.session_state.db_idx < len(st.session_state.all_docs):
                             raw = st.session_state.all_docs[st.session_state.db_idx].page_content
                             res = get_adaptive_question(llm, raw, "NORMAL", "")
+                            
+                            if not res:
+                                break
+                                
                             try:
-                                # FIX 5: Timed Exam JSON Slicer
                                 start_idx = res.find('{')
                                 end_idx = res.rfind('}')
                                 if start_idx != -1 and end_idx != -1:
@@ -583,12 +590,12 @@ def run_student_simulator(vs, llm):
                                 d = json.loads(cleaned)
                                 st.session_state.te_current_q = {"text": d["question"], "options": [f"A: {d['A']}", f"B: {d['B']}", f"C: {d['C']}", f"D: {d['D']}"], "correct_letter": d["correct"].upper()}
                                 break
-                            except: 
+                            except Exception as e: 
+                                st.error(f"🛑 JSON Parsing Failed! Raw AI Output: {res}")
                                 st.session_state.db_idx += 1
                                 
                 cq = st.session_state.te_current_q
                 
-                # FIX 6: Safety Catch for Timed Exam
                 if cq is None:
                     st.error("The AI failed to format the exam question correctly. Please return.")
                     return
