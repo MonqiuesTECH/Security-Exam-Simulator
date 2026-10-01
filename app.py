@@ -159,8 +159,8 @@ def load_resources():
     try:
         embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
         vectorstore = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
-        # Switched to the universally available model name
-        llm = ChatGroq(temperature=0, model_name="llama-3.1-8b-instant", groq_api_key=api_key)
+        # Updated to active Groq production model
+        llm = ChatGroq(temperature=0, model_name="openai/gpt-oss-20b", groq_api_key=api_key)
         return vectorstore, llm
     except Exception as e:
         st.error(f"Critical Initialization Error: {e}")
@@ -293,7 +293,7 @@ def run_admin_dashboard():
                     st.success("Clear - No gaps detected.")
                 
                 st.markdown("---")
-                if st.button(f"🗑️️ Purge {student} History", key=f"del_{student}"):
+                if st.button(f"🗑️ Purge {student} History", key=f"del_{student}"):
                     if student in db: del db[student]
                     save_db(db)
                     st.rerun()
