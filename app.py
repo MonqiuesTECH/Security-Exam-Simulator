@@ -181,7 +181,8 @@ def load_resources():
     try:
         embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
         vectorstore = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
-        llm = ChatGroq(temperature=0, model_name="openai/gpt-oss-20b", groq_api_key=api_key) # Adjust model name to active Groq tier if needed e.g. llama-3.1-70b-versatile
+        # FIX 5: GROQ MODEL STRING UPDATED
+        llm = ChatGroq(temperature=0, model_name="llama-3.3-70b-versatile", groq_api_key=api_key) 
         return vectorstore, llm
     except Exception as e:
         st.error(f"Critical Initialization Error: {e}")
