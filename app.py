@@ -17,6 +17,18 @@ load_dotenv()
 st.set_page_config(page_title="Cyber Punk University", page_icon="🛡️", layout="wide")
 
 # ==========================================
+# FIX 1: HIDE STREAMLIT MENU & FOOTER
+# ==========================================
+hide_streamlit_style = """
+<style>
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header {visibility: hidden;}
+</style>
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
+# ==========================================
 # DATABASE & TRACKING LOGIC
 # ==========================================
 DB_FILE = "study_logs.json"
@@ -105,22 +117,32 @@ def render_footer():
     st.markdown("---")
     st.markdown("<p style='text-align: center; color: grey;'>Created and Powered By Monique Bruce</p>", unsafe_allow_html=True)
 
+# FIX 2: IMPROVED LOGIN TO PREVENT CRASHES
 def check_password():
-    def password_entered():
-        user = st.session_state["username"].strip().lower()
-        pw = st.session_state["password"].strip()
-        
-        if user in st.secrets["passwords"] and pw == st.secrets["passwords"][user]:
-            st.session_state["password_correct"] = True
-            st.session_state["current_user"] = user
-            del st.session_state["password"]
-            if user != "admin":
-                st.session_state.last_ping = time.time()
-                log_event(user, "Logged In", "Student initiated training session.")
-        else:
-            st.session_state["password_correct"] = False
+    if "password_correct" not in st.session_state:
+        st.session_state["password_correct"] = False
 
-    if "password_correct" not in st.session_state or not st.session_state["password_correct"]:
+    def password_entered():
+        user = st.session_state.get("username", "").strip().lower()
+        pw = st.session_state.get("password", "").strip()
+        
+        try:
+            if user in st.secrets["passwords"] and pw == st.secrets["passwords"][user]:
+                st.session_state["password_correct"] = True
+                st.session_state["current_user"] = user
+                st.session_state["login_error"] = False
+                if "password" in st.session_state:
+                    del st.session_state["password"]
+                if user != "admin":
+                    st.session_state.last_ping = time.time()
+                    log_event(user, "Logged In", "Student initiated training session.")
+            else:
+                st.session_state["password_correct"] = False
+                st.session_state["login_error"] = True
+        except Exception as e:
+            st.session_state["login_error"] = True
+
+    if not st.session_state["password_correct"]:
         st.markdown("<br><br>", unsafe_allow_html=True)
         spacer_left, col_img, col_form, spacer_right = st.columns([1, 2, 2, 1])
         
@@ -138,8 +160,8 @@ def check_password():
             st.text_input("Password", type="password", key="password")
             st.button("Authorize Access", on_click=password_entered, use_container_width=True)
             
-            if "password_correct" in st.session_state and not st.session_state["password_correct"]:
-                st.error("🚫 Access Denied: Invalid Credentials.")
+            if st.session_state.get("login_error"):
+                st.error("🚫 Access Denied: Invalid Credentials or System Error.")
                 
         st.markdown("<br><br><br>", unsafe_allow_html=True)
         render_footer()
@@ -159,8 +181,7 @@ def load_resources():
     try:
         embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
         vectorstore = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
-        # Updated to active Groq production model
-        llm = ChatGroq(temperature=0, model_name="openai/gpt-oss-20b", groq_api_key=api_key)
+        llm = ChatGroq(temperature=0, model_name="openai/gpt-oss-20b", groq_api_key=api_key) # Adjust model name to active Groq tier if needed e.g. llama-3.1-70b-versatile
         return vectorstore, llm
     except Exception as e:
         st.error(f"Critical Initialization Error: {e}")
@@ -199,16 +220,24 @@ def get_adaptive_question(llm, raw_text, diff, weaknesses=""):
     chain = prompt | llm | StrOutputParser()
     return safe_invoke(chain, {"raw_text": raw_text[:1200], "difficulty": diff, "weaknesses": weaknesses})
 
+# FIX 4: UPGRADED AI TUTOR PROMPT
 def get_tutor_feedback(llm, question, user_ans, correct_letter, is_right, diff):
     result_text = "Correct" if is_right else "Incorrect"
     template = """
-    You are an expert Security+ tutor. 
+    You are an expert CompTIA Security+ tutor. The student has just answered a multiple-choice question.
+    
     Question: {question}
     Student Choice: {user_ans}
     Correct Answer: {correct_letter}
     Result: {result}
     Level: {difficulty}
-    Provide a smooth, beginner-friendly explanation using a real-world analogy if the student is struggling.
+    
+    Do not just summarize the concept. You MUST structure your response exactly like this:
+    1. **Why the Correct Answer is Right:** Explain clearly why '{correct_letter}' is the correct choice.
+    2. **Why the Others are Wrong:** Explicitly break down EVERY incorrect option (A, B, C, and D) and explain exactly why it is incorrect in this scenario.
+    3. **Key Takeaway:** One short sentence summarizing the core concept to remember for the exam.
+    
+    Keep the language simple, engaging, and easy to understand. Provide a real-world analogy if the concept is difficult.
     """
     prompt = PromptTemplate.from_template(template)
     chain = prompt | llm | StrOutputParser()
@@ -481,14 +510,20 @@ def run_student_simulator(vs, llm):
 
         if st.session_state.current_q is None:
             with st.spinner("Synthesizing next objective..."):
+                
+                # FIX 3: Out of bounds logic. Shuffle and restart if we run out of questions
+                if st.session_state.db_idx >= len(st.session_state.all_docs):
+                    random.shuffle(st.session_state.all_docs)
+                    st.session_state.db_idx = 0
+                
                 while st.session_state.db_idx < len(st.session_state.all_docs):
-                    raw_content = st.session_state.all_docs[st.session_state.db_idx].page_content
-                    formatted = get_adaptive_question(llm, raw_content, st.session_state.difficulty, user_weaknesses)
-                    
-                    if not formatted:
-                        break
-                        
                     try:
+                        raw_content = st.session_state.all_docs[st.session_state.db_idx].page_content
+                        formatted = get_adaptive_question(llm, raw_content, st.session_state.difficulty, user_weaknesses)
+                        
+                        if not formatted:
+                            break
+                            
                         start_idx = formatted.find('{')
                         end_idx = formatted.rfind('}')
                         if start_idx != -1 and end_idx != -1:
@@ -504,7 +539,6 @@ def run_student_simulator(vs, llm):
                         }
                         break 
                     except Exception as e: 
-                        st.error(f"🛑 JSON Parsing Failed! Raw AI Output: {formatted}")
                         st.session_state.db_idx += 1 
 
         cq = st.session_state.current_q
@@ -571,14 +605,20 @@ def run_student_simulator(vs, llm):
             if st.session_state.te_idx <= 87:
                 if st.session_state.te_current_q is None:
                     with st.spinner("Synthesizing exam question..."):
-                        while st.session_state.db_idx < len(st.session_state.all_docs):
-                            raw = st.session_state.all_docs[st.session_state.db_idx].page_content
-                            res = get_adaptive_question(llm, raw, "NORMAL", "")
+                        
+                        # FIX 3: Out of bounds logic for Timed Exam
+                        if st.session_state.db_idx >= len(st.session_state.all_docs):
+                            random.shuffle(st.session_state.all_docs)
+                            st.session_state.db_idx = 0
                             
-                            if not res:
-                                break
-                                
+                        while st.session_state.db_idx < len(st.session_state.all_docs):
                             try:
+                                raw = st.session_state.all_docs[st.session_state.db_idx].page_content
+                                res = get_adaptive_question(llm, raw, "NORMAL", "")
+                                
+                                if not res:
+                                    break
+                                    
                                 start_idx = res.find('{')
                                 end_idx = res.rfind('}')
                                 if start_idx != -1 and end_idx != -1:
@@ -590,7 +630,6 @@ def run_student_simulator(vs, llm):
                                 st.session_state.te_current_q = {"text": d["question"], "options": [f"A: {d['A']}", f"B: {d['B']}", f"C: {d['C']}", f"D: {d['D']}"], "correct_letter": d["correct"].upper()}
                                 break
                             except Exception as e: 
-                                st.error(f"🛑 JSON Parsing Failed! Raw AI Output: {res}")
                                 st.session_state.db_idx += 1
                                 
                 cq = st.session_state.te_current_q
