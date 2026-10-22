@@ -17,7 +17,7 @@ load_dotenv()
 st.set_page_config(page_title="Cyber Punk University", page_icon="🛡️", layout="wide")
 
 # ==========================================
-# FIX 1: HIDE STREAMLIT MENU & FOOTER
+# HIDE STREAMLIT MENU & FOOTER
 # ==========================================
 hide_streamlit_style = """
 <style>
@@ -148,7 +148,7 @@ def check_password():
         with col_img:
             image_name = "logo.jpeg"
             if os.path.exists(image_name):
-                st.image(image_name, use_container_width=True)
+                st.image(image_name, width="stretch")
             else:
                 st.info("Logo Placeholder (Ensure logo.jpeg is in your GitHub Repo)")
 
@@ -157,7 +157,7 @@ def check_password():
             st.subheader("Secure Access Portal")
             st.text_input("Username", key="username")
             st.text_input("Password", type="password", key="password")
-            st.button("Authorize Access", on_click=password_entered, use_container_width=True)
+            st.button("Authorize Access", on_click=password_entered, width="stretch")
             
             if st.session_state.get("login_error"):
                 st.error("🚫 Access Denied: Invalid Credentials or System Error.")
@@ -180,7 +180,7 @@ def load_resources():
     try:
         embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
         vectorstore = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
-        llm = ChatGroq(temperature=0, model_name="llama3-8b-8192", groq_api_key=api_key) 
+        llm = ChatGroq(temperature=0, model_name="openai/gpt-oss-20b", groq_api_key=api_key) 
         return vectorstore, llm
     except Exception as e:
         st.error(f"Critical Initialization Error: {e}")
@@ -192,7 +192,7 @@ def safe_invoke(chain, params, max_retries=3):
             return chain.invoke(params)
         except Exception as e:
             if "RateLimit" in str(type(e).__name__) or "429" in str(e):
-                time.sleep(5)  
+                time.sleep(5) 
             else:
                 st.error(f"🛑 Groq API Error: {str(e)}")
                 return ""
@@ -369,7 +369,7 @@ def run_student_simulator(vs, llm):
         docs = vs.similarity_search("Security+", k=120)
         random.shuffle(docs)
         st.session_state.all_docs = docs
-        st.session_state.current_q = None   
+        st.session_state.current_q = None    
         st.session_state.feedback = ""
         st.session_state.user_choice = None
         st.session_state.is_right = False
@@ -404,7 +404,7 @@ def run_student_simulator(vs, llm):
             st.error(f"❌ Missed: {st.session_state.wrong_count}")
             
             st.markdown("---")
-            if st.button("🔄 Reset Quiz (Start Over)", use_container_width=True):
+            if st.button("🔄 Reset Quiz (Start Over)", width="stretch"):
                 update_live_score(user, 0, 0)
                 log_event(user, "Quiz Reset", "Student initiated full restart.")
                 db = load_db()
